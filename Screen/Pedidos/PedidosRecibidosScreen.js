@@ -8,7 +8,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import pedidosService from '../../service/PedidosService';
+import pedidosService from '../../src/service/PedidosService';
 
 export default function PedidosRecibidosScreen({ navigation }) {
   const [pedidos, setPedidos] = useState([]);
@@ -175,4 +175,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

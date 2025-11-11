@@ -6,9 +6,22 @@ export const authService = {
    */
   async login(email, password) {
     try {
+      // Normalizar email: trim y lowercase
+      const normalizedEmail = email.trim().toLowerCase();
+      const trimmedPassword = password.trim();
+      
+      // Log en desarrollo para debug
+      if (__DEV__) {
+        console.log('🔐 Intentando login con:', {
+          emailOriginal: email,
+          emailNormalizado: normalizedEmail,
+          passwordLength: trimmedPassword.length,
+        });
+      }
+      
       const response = await api.post('/auth/login', {
-        email,
-        password,
+        email: normalizedEmail,
+        password: trimmedPassword,
       });
       return response.data;
     } catch (error) {
@@ -69,4 +82,8 @@ export const authService = {
 };
 
 export default authService;
+
+
+
+
 

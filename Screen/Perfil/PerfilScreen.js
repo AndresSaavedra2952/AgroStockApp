@@ -7,7 +7,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function PerfilScreen({ navigation }) {
   const { user, logout, isProductor, isConsumidor } = useAuth();
@@ -176,4 +176,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+
+
 

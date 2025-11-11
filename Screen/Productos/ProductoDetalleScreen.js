@@ -9,9 +9,9 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
-import productosService from '../../service/ProductosService';
-import cartService from '../../service/CartService';
-import { useAuth } from '../../context/AuthContext';
+import productosService from '../../src/service/ProductosService';
+import cartService from '../../src/service/CartService';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function ProductoDetalleScreen({ route, navigation }) {
   const { productoId } = route.params;
@@ -194,4 +194,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+
+
 

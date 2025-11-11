@@ -9,8 +9,8 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import cartService from '../../service/CartService';
-import { useAuth } from '../../context/AuthContext';
+import cartService from '../../src/service/CartService';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function CarritoScreen({ navigation }) {
   const { user } = useAuth();
@@ -218,4 +218,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

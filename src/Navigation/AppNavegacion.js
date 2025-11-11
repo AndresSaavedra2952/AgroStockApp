@@ -5,25 +5,23 @@ import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
 // Screens de Autenticación
-import LoginScreen from '../components/screens/LoginScreen';
-import RegisterScreen from '../components/screens/RegisterScreen';
+import LoginScreen from '../../Screen/Auth/LoginScreen';
+import RegisterScreen from '../../Screen/Auth/RegisterScreen';
 
 // Screens de Consumidor
-import HomeScreen from '../components/screens/HomeScreen';
-import ProductosScreen from '../components/screens/ProductosScreen';
-import ProductoDetalleScreen from '../components/screens/ProductoDetalleScreen';
-import CarritoScreen from '../components/screens/CarritoScreen';
-import PedidosScreen from '../components/screens/PedidosScreen';
-import PerfilScreen from '../components/screens/PerfilScreen';
-import MensajesScreen from '../components/screens/MensajesScreen';
+import HomeScreen from '../../Screen/Inicio/HomeScreen';
+import ProductosScreen from '../../Screen/Productos/ProductosScreen';
+import ProductoDetalleScreen from '../../Screen/Productos/ProductoDetalleScreen';
+import CarritoScreen from '../../Screen/Carrito/CarritoScreen';
+import PedidosScreen from '../../Screen/Pedidos/PedidosScreen';
+import PerfilScreen from '../../Screen/Perfil/PerfilScreen';
+import MensajesScreen from '../../Screen/Mensajes/MensajesScreen';
 
 // Screens de Productor
-import MisProductosScreen from '../components/screens/MisProductosScreen';
-import CrearProductoScreen from '../components/screens/CrearProductoScreen';
-import EditarProductoScreen from '../components/screens/EditarProductoScreen';
-import PedidosRecibidosScreen from '../components/screens/PedidosRecibidosScreen';
-import EstadisticasScreen from '../components/screens/EstadisticasScreen';
-import AlertasStockScreen from '../components/screens/AlertasStockScreen';
+import MisProductosScreen from '../../Screen/Productos/MisProductosScreen';
+import PedidosRecibidosScreen from '../../Screen/Pedidos/PedidosRecibidosScreen';
+import EstadisticasScreen from '../../Screen/Estadisticas/EstadisticasScreen';
+import AlertasStockScreen from '../../Screen/Alertas/AlertasStockScreen';
 
 // Componentes comunes
 import LoadingScreen from '../components/LoadingScreen';
@@ -114,10 +112,13 @@ export default function AppNavegacion() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {!user ? (
-        // Usuario no autenticado - Pantallas de autenticación
+        // Usuario no autenticado - Pantalla de inicio pública y autenticación
         <>
+          <Stack.Screen name="HomePublic" component={HomeScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="Productos" component={ProductosScreen} />
+          <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
         </>
       ) : user.rol === 'consumidor' ? (
         // Usuario consumidor
@@ -130,12 +131,12 @@ export default function AppNavegacion() {
         // Usuario productor
         <>
           <Stack.Screen name="ProductorMain" component={ProductorTabs} />
-          <Stack.Screen name="CrearProducto" component={CrearProductoScreen} options={{ headerShown: true, title: 'Crear Producto' }} />
-          <Stack.Screen name="EditarProducto" component={EditarProductoScreen} options={{ headerShown: true, title: 'Editar Producto' }} />
           <Stack.Screen name="AlertasStock" component={AlertasStockScreen} options={{ headerShown: true, title: 'Alertas de Stock' }} />
         </>
       ) : null}
     </Stack.Navigator>
   );
 }
+
+
 

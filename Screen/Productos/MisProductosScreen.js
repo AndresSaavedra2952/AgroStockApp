@@ -9,11 +9,16 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { useAuth } from '../../context/AuthContext';
-import productosService from '../../service/ProductosService';
+import { useAuth } from '../../src/context/AuthContext';
+import productosService from '../../src/service/ProductosService';
 import { Ionicons } from '@expo/vector-icons';
+import CrearProductoModal from '../../src/components/CrearProductoModal';
+import EditarProductoModal from '../../src/components/EditarProductoModal';
 
 export default function MisProductosScreen({ navigation }) {
+  const [modalCrearVisible, setModalCrearVisible] = useState(false);
+  const [modalEditarVisible, setModalEditarVisible] = useState(false);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   const { user } = useAuth();
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -70,7 +75,10 @@ export default function MisProductosScreen({ navigation }) {
       </View>
       <View style={styles.actions}>
         <TouchableOpacity
-          onPress={() => navigation.navigate('EditarProducto', { productoId: item.id_producto })}
+          onPress={() => {
+            setProductoSeleccionado(item.id_producto);
+            setModalEditarVisible(true);
+          }}
           style={styles.editButton}
         >
           <Ionicons name="pencil" size={20} color="#2196f3" />
@@ -89,7 +97,7 @@ export default function MisProductosScreen({ navigation }) {
     <View style={styles.container}>
       <TouchableOpacity
         style={styles.addButton}
-        onPress={() => navigation.navigate('CrearProducto')}
+        onPress={() => setModalCrearVisible(true)}
       >
         <Ionicons name="add-circle" size={24} color="#fff" />
         <Text style={styles.addButtonText}>Agregar Producto</Text>
@@ -105,6 +113,22 @@ export default function MisProductosScreen({ navigation }) {
             <Text style={styles.emptyText}>No tienes productos registrados</Text>
           </View>
         }
+      />
+
+      <CrearProductoModal
+        visible={modalCrearVisible}
+        onClose={() => setModalCrearVisible(false)}
+        onSuccess={cargarProductos}
+      />
+
+      <EditarProductoModal
+        visible={modalEditarVisible}
+        onClose={() => {
+          setModalEditarVisible(false);
+          setProductoSeleccionado(null);
+        }}
+        productoId={productoSeleccionado}
+        onSuccess={cargarProductos}
       />
     </View>
   );
@@ -187,4 +211,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

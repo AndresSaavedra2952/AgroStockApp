@@ -37,7 +37,13 @@ export const notificationService = {
    */
   async registrarToken() {
     try {
+      // En desarrollo con Expo Go, el projectId puede no estar disponible
+      // Intentamos obtener el token, pero no fallamos si no hay projectId
       const token = await Notifications.getExpoPushTokenAsync();
+      
+      if (!token?.data) {
+        return null;
+      }
       
       // Guardar token localmente
       await AsyncStorage.setItem('fcm_token', token.data);
@@ -53,6 +59,12 @@ export const notificationService = {
       
       return token.data;
     } catch (error) {
+      // En desarrollo, si el error es por projectId, lo ignoramos silenciosamente
+      if (error.message?.includes('projectId') && __DEV__) {
+        // No mostrar error en desarrollo, las notificaciones push no son críticas
+        return null;
+      }
+      // Para otros errores o en producción, mostrar el error
       console.error('Error al obtener token:', error);
       return null;
     }
@@ -105,4 +117,8 @@ export const notificationService = {
 };
 
 export default notificationService;
+
+
+
+
 

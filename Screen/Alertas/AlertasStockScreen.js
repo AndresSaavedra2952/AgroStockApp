@@ -6,7 +6,7 @@ import {
   FlatList,
   RefreshControl,
 } from 'react-native';
-import api from '../../service/ApiService';
+import api from '../../src/service/ApiService';
 
 export default function AlertasStockScreen() {
   const [alertas, setAlertas] = useState([]);
@@ -105,4 +105,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

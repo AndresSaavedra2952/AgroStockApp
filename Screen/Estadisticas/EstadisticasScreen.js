@@ -6,7 +6,7 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import estadisticasService from '../../service/EstadisticasService';
+import estadisticasService from '../../src/service/EstadisticasService';
 
 export default function EstadisticasScreen() {
   const [estadisticas, setEstadisticas] = useState(null);
@@ -113,4 +113,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

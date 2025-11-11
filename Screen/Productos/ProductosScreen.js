@@ -9,8 +9,8 @@ import {
   TextInput,
   RefreshControl,
 } from 'react-native';
-import productosService from '../../service/ProductosService';
-import categoriasService from '../../service/CategoriasService';
+import productosService from '../../src/service/ProductosService';
+import categoriasService from '../../src/service/CategoriasService';
 
 export default function ProductosScreen({ navigation, route }) {
   const [productos, setProductos] = useState([]);
@@ -210,4 +210,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

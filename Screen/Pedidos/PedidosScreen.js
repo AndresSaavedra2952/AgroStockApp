@@ -7,8 +7,8 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import pedidosService from '../../service/PedidosService';
-import { useAuth } from '../../context/AuthContext';
+import pedidosService from '../../src/service/PedidosService';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function PedidosScreen({ navigation }) {
   const { user } = useAuth();
@@ -136,4 +136,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 

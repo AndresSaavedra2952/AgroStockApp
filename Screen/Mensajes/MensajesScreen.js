@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import mensajesService from '../../service/MensajesService';
+import mensajesService from '../../src/service/MensajesService';
 
 export default function MensajesScreen({ navigation }) {
   const [mensajes, setMensajes] = useState([]);
@@ -143,4 +143,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+
 
