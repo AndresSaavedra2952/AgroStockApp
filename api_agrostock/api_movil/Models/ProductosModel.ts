@@ -1,0 +1,560 @@
+import { conexion } from "./Conexion.ts";
+import { join } from "../Dependencies/dependencias.ts";
+import { HistorialPreciosModel, HistorialPrecioCreateData } from "./HistorialPreciosModel.ts";
+
+export interface ProductoData {
+  id_producto: number;
+  nombre: string;
+  descripcion?: string;
+  precio: number;
+  stock: number;
+  stock_minimo: number;
+  unidad_medida: string;
+  id_usuario: number;
+  id_categoria?: number;
+  id_ciudad_origen?: number;
+  imagen_principal?: string;
+  imagenes_adicionales?: string | string[]; // JSON array o string
+  disponible: boolean;
+  fecha_creacion?: string;
+  fecha_actualizacion?: string;
+}
+
+export interface ProductoDataResponse extends ProductoData {
+  imagenUrl?: string | null; // Para compatibilidad
+  nombre_productor?: string;
+  email_productor?: string;
+  ciudad_origen?: string;
+  departamento_origen?: string;
+  categoria_nombre?: string;
+}
+
+export class ProductosModel {
+    public _objProducto: ProductoData | null;
+    private readonly UPLOADS_DIR = "./uploads";
+
+    constructor(objProducto: ProductoData | null = null) {
+        this._objProducto = objProducto;
+    }
+
+    public async ListarProductos(): Promise<ProductoData[]> {
+        try {
+            const result = await conexion.query("SELECT * FROM productos ORDER BY id_producto DESC");
+            return result as ProductoData[];
+        } catch (error) {
+            console.error("Error al listar productos:", error);
+            throw new Error("Error al listar productos.");
+        }
+    }
+
+    // 📌 Listar productos con información adicional
+    public async ListarProductosConInfo(): Promise<Record<string, unknown>[]> {
+        try {
+            const result = await conexion.query(`
+                SELECT 
+                    p.*,
+                    u.nombre as nombre_productor,
+                    u.email as email_productor,
+                    u.telefono as telefono_productor,
+                    u.foto_perfil as foto_productor,
+                    c.nombre as ciudad_origen,
+                    d.nombre as departamento_origen,
+                    r.nombre as region_origen,
+                    cat.nombre as categoria_nombre,
+                    cat.imagen_url as categoria_imagen
+                FROM productos p
+                INNER JOIN usuarios u ON p.id_usuario = u.id_usuario
+                LEFT JOIN ciudades c ON p.id_ciudad_origen = c.id_ciudad
+                LEFT JOIN departamentos d ON c.id_departamento = d.id_departamento
+                LEFT JOIN regiones r ON d.id_region = r.id_region
+                LEFT JOIN categorias cat ON p.id_categoria = cat.id_categoria AND cat.activa = 1
+                WHERE p.disponible = 1
+                ORDER BY p.id_producto DESC
+            `);
+            return result;
+        } catch (error) {
+            console.error("Error al listar productos con info:", error);
+            return [];
+        }
+    }
+
+    // 📌 Buscar productos por criterios
+    public async BuscarProductos(criterios: {
+        nombre?: string;
+        categoria?: number;
+        ciudad?: number;
+        departamento?: number;
+        region?: number;
+        precio_min?: number;
+        precio_max?: number;
+        stock_min?: number;
+    }): Promise<Record<string, unknown>[]> {
+        try {
+            let query = `
+                SELECT 
+                    p.*,
+                    u.nombre as nombre_productor,
+                    u.email as email_productor,
+                    u.telefono as telefono_productor,
+                    c.nombre as ciudad_origen,
+                    d.nombre as departamento_origen,
+                    r.nombre as region_origen,
+                    GROUP_CONCAT(cat.nombre) as categorias
+                FROM productos p
+                INNER JOIN usuarios u ON p.id_usuario = u.id_usuario
+                INNER JOIN ciudades c ON p.id_ciudad_origen = c.id_ciudad
+                INNER JOIN departamentos d ON c.id_departamento = d.id_departamento
+                INNER JOIN regiones r ON d.id_region = r.id_region
+                LEFT JOIN categorias cat ON p.id_categoria = cat.id_categoria AND cat.activa = 1
+                WHERE p.disponible = 1
+            `;
+            
+            const params: unknown[] = [];
+
+            if (criterios.nombre) {
+                query += " AND p.nombre LIKE ?";
+                params.push(`%${criterios.nombre}%`);
+            }
+
+            if (criterios.categoria) {
+                query += " AND p.id_categoria = ?";
+                params.push(criterios.categoria);
+            }
+
+            if (criterios.ciudad) {
+                query += " AND p.id_ciudad_origen = ?";
+                params.push(criterios.ciudad);
+            }
+
+            if (criterios.departamento) {
+                query += " AND c.id_departamento = ?";
+                params.push(criterios.departamento);
+            }
+
+            if (criterios.region) {
+                query += " AND d.id_region = ?";
+                params.push(criterios.region);
+            }
+
+            if (criterios.precio_min !== undefined) {
+                query += " AND p.precio >= ?";
+                params.push(criterios.precio_min);
+            }
+
+            if (criterios.precio_max !== undefined) {
+                query += " AND p.precio <= ?";
+                params.push(criterios.precio_max);
+            }
+
+            if (criterios.stock_min !== undefined) {
+                query += " AND p.stock >= ?";
+                params.push(criterios.stock_min);
+            }
+
+            query += " ORDER BY p.id_producto DESC";
+
+            const result = await conexion.query(query, params);
+            return result;
+        } catch (error) {
+            console.error("Error al buscar productos:", error);
+            return [];
+        }
+    }
+
+    // 📌 Obtener productos por productor
+    public async ObtenerProductosPorProductor(id_usuario: number): Promise<Record<string, unknown>[]> {
+        try {
+            const result = await conexion.query(`
+                SELECT 
+                    p.*,
+                    c.nombre as ciudad_origen,
+                    d.nombre as departamento_origen,
+                    r.nombre as region_origen,
+                    GROUP_CONCAT(cat.nombre) as categorias
+                FROM productos p
+                INNER JOIN ciudades c ON p.id_ciudad_origen = c.id_ciudad
+                INNER JOIN departamentos d ON c.id_departamento = d.id_departamento
+                INNER JOIN regiones r ON d.id_region = r.id_region
+                LEFT JOIN categorias cat ON p.id_categoria = cat.id_categoria AND cat.activa = 1
+                WHERE p.id_usuario = ?
+                ORDER BY p.id_producto DESC
+            `, [id_usuario]);
+            
+            return result;
+        } catch (error) {
+            console.error("Error al obtener productos por productor:", error);
+            return [];
+        }
+    }
+
+    public async AgregarProducto(imagenData?: string): Promise<{ success: boolean; message: string; producto?: ProductoData }> {
+        try {
+            if (!this._objProducto) {
+                throw new Error("No se proporciono un objeto de producto.");
+            }
+
+            const { nombre, descripcion, precio, stock, stock_minimo, id_usuario, id_categoria, id_ciudad_origen, unidad_medida } = this._objProducto;
+
+            if (!nombre || precio === undefined || stock === undefined || !id_usuario) {
+                throw new Error("Faltan campos obligatorios: nombre, precio, stock, id_usuario.");
+            }
+
+            await conexion.execute("START TRANSACTION");
+
+            const result = await conexion.execute(`INSERT INTO productos (nombre, descripcion, precio, stock, stock_minimo, id_usuario, id_categoria, id_ciudad_origen, unidad_medida, disponible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+                [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg']
+            );
+
+            if (!result || !result.affectedRows || result.affectedRows === 0) {
+                await conexion.execute("ROLLBACK");
+                return { success: false, message: "No se pudo agregar el producto." };
+            }
+
+            const queryResult = await conexion.query("SELECT * FROM productos ORDER BY id_producto DESC LIMIT 1");
+            const nuevoProducto = queryResult[0] as ProductoData;
+
+            let rutaImagen = null;
+            if (imagenData) {
+                try {
+                    rutaImagen = await this.guardarImagen(nuevoProducto.id_producto, imagenData);
+                    
+                    await conexion.execute("UPDATE productos SET imagen_principal = ? WHERE id_producto = ?", 
+                    [rutaImagen, nuevoProducto.id_producto]
+                    );
+                } catch (imageError) {
+                    console.error("Error al procesar imagen:", imageError);
+                }
+            }
+
+            await conexion.execute("COMMIT");
+
+            const productoFinal = await conexion.query("SELECT * FROM productos WHERE id_producto = ?", [nuevoProducto.id_producto]);
+
+            return {
+                success: true,
+                message: "Producto agregado exitosamente.",
+                producto: productoFinal[0] as ProductoData
+            };
+
+        } catch (error) {
+            await conexion.execute("ROLLBACK");
+            console.error("Error al agregar producto:", error);
+            return { 
+                success: false, 
+                message: error instanceof Error ? error.message : "Error al agregar producto." 
+            };
+        }
+    }
+
+    public async EditarProducto(imagenData?: string): Promise<{ success: boolean; message: string }> {
+        try {
+            if (!this._objProducto || !this._objProducto.id_producto) {
+                throw new Error("No se proporciono un objeto de producto valido.");
+            }
+            const { id_producto, nombre, descripcion, precio, stock, stock_minimo, id_usuario, id_categoria, id_ciudad_origen, unidad_medida, disponible } = this._objProducto;
+
+            await conexion.execute("START TRANSACTION");
+
+            // Obtener el precio anterior antes de actualizar
+            const productoAnterior = await conexion.query("SELECT precio FROM productos WHERE id_producto = ?", [id_producto]);
+            const precioAnterior = productoAnterior.length > 0 ? parseFloat(productoAnterior[0].precio) : null;
+
+            let rutaImagen = this._objProducto.imagen_principal;
+            
+            if (imagenData) {
+                if (this._objProducto.imagen_principal) {
+                    const productDir = join(this.UPLOADS_DIR, id_producto.toString());
+                    if (await this.existeDirectorio(productDir)) {
+                        // @ts-ignore - Deno is a global object in Deno runtime
+                        await Deno.remove(productDir, { recursive: true });
+                    }
+                }
+                
+                try {
+                    rutaImagen = await this.guardarImagen(id_producto, imagenData);
+                } catch (imageError) {
+                    console.error("Error al procesar nueva imagen:", imageError);
+                }
+            }
+
+            const result = await conexion.execute(`UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, disponible = ? WHERE id_producto = ?`,
+                [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, disponible !== false ? 1 : 0, id_producto]
+            );
+
+            // Si el precio cambió, registrar en historial de precios
+            if (precioAnterior !== null && precio !== undefined && precioAnterior !== precio) {
+                try {
+                    const historialData: HistorialPrecioCreateData = {
+                        id_producto,
+                        precio_anterior: precioAnterior,
+                        precio_nuevo: precio,
+                        id_usuario_modifico: id_usuario || null
+                    };
+                    const historialModel = new HistorialPreciosModel(historialData);
+                    await historialModel.RegistrarCambioPrecio();
+                } catch (historialError) {
+                    console.error("Error al registrar historial de precio:", historialError);
+                    // No fallar la actualización del producto si falla el historial
+                }
+            }
+
+            // Si se actualizó la imagen o hay cambios en los datos, considerar exitoso
+            if (result && ((result.affectedRows ?? 0) > 0 || imagenData)) {
+                await conexion.execute("COMMIT");
+                return {
+                    success: true,
+                    message: imagenData ? "Imagen actualizada exitosamente." : "Producto editado exitosamente.",
+                };
+            } else {
+                await conexion.execute("ROLLBACK");
+                return {
+                    success: false,
+                    message: "No se pudo editar el producto.",
+                };
+            }
+        } catch (error) {
+            await conexion.execute("ROLLBACK");
+            console.error("Error al editar producto:", error);
+            return {
+                success: false,
+                message: error instanceof Error ? error.message : "Error al editar el producto.",
+            };
+        }
+    }
+
+    public async EliminarProducto(id_producto: number): Promise<{ success: boolean; message: string }> {
+        try {
+            await conexion.execute("START TRANSACTION");
+
+            const producto = await conexion.query("SELECT * FROM productos WHERE id_producto = ?", [id_producto]);
+            
+            if (!producto || producto.length === 0) {
+                await conexion.execute("ROLLBACK");
+                return {
+                    success: false,
+                    message: "El producto no existe."
+                };
+            }
+
+            const result = await conexion.execute("DELETE FROM productos WHERE id_producto = ?", [id_producto]);
+
+            if (result && result.affectedRows && result.affectedRows > 0) {
+                await this.eliminarCarpetaProducto(id_producto);
+                
+                await conexion.execute("COMMIT");
+                return {
+                    success: true,
+                    message: "Producto eliminado exitosamente."
+                };
+            } else {
+                await conexion.execute("ROLLBACK");
+                return {
+                    success: false,
+                    message: "No se pudo eliminar el producto."
+                };
+            }
+        } catch (error) {
+            await conexion.execute("ROLLBACK");
+            console.error("Error al eliminar producto:", error);
+            return {
+                success: false,
+                message: error instanceof Error ? error.message : "Error al eliminar el producto."
+            };
+        }        
+    }
+
+    public async ObtenerProductoPorId(id_producto: number): Promise<ProductoData | null> {
+        try {
+            const result = await conexion.query("SELECT * FROM productos WHERE id_producto = ?", [id_producto]);
+            return result.length > 0 ? result[0] as ProductoData : null;
+        } catch (error) {
+            console.error("Error al obtener producto por ID:", error);
+            throw new Error("Error al obtener producto.");
+        }
+    }
+
+    public construirUrlImagen(rutaImagen: string | null | undefined, baseUrl: string = "http://localhost:8000"): string | null {
+        if (!rutaImagen) return null;
+        return `${baseUrl}/${rutaImagen}`;
+    }
+
+    private async existeDirectorio(ruta: string): Promise<boolean> {
+        try {
+            // @ts-ignore - Deno is a global object in Deno runtime
+            const stat = await Deno.stat(ruta);
+            return stat.isDirectory;
+        } catch {
+            return false;
+        }
+    }
+
+    private async crearDirectorio(ruta: string): Promise<void> {
+        try {
+            // @ts-ignore - Deno is a global object in Deno runtime
+            await Deno.mkdir(ruta, { recursive: true });
+        } catch (error) {
+            // @ts-ignore - Deno is a global object in Deno runtime
+            if (!(error instanceof Deno.errors.AlreadyExists)) {
+                throw error;
+            }
+        }
+    }
+
+    private async crearCarpetaProducto(idProducto: number): Promise<string> {
+        try {
+            if (!(await this.existeDirectorio(this.UPLOADS_DIR))) {
+                await this.crearDirectorio(this.UPLOADS_DIR);
+            }
+
+            const productDir = join(this.UPLOADS_DIR, idProducto.toString());
+            if (!(await this.existeDirectorio(productDir))) {
+                await this.crearDirectorio(productDir);
+            }
+
+            return productDir;
+        } catch (error) {
+            console.error(`Error al crear carpeta para producto`, error);
+            throw new Error("Error al crear directorio para la imagen.");
+        }
+    }
+
+    private async eliminarCarpetaProducto(idProducto: number): Promise<void> {
+        try {
+            const productDir = join(this.UPLOADS_DIR, idProducto.toString());
+            
+            if (await this.existeDirectorio(productDir)) {
+                // @ts-ignore - Deno is a global object in Deno runtime
+                await Deno.remove(productDir, { recursive: true });
+            }
+
+            if (await this.existeDirectorio(this.UPLOADS_DIR)) {
+                try {
+                    const items = [];
+                    // @ts-ignore - Deno is a global object in Deno runtime
+                    for await (const dirEntry of Deno.readDir(this.UPLOADS_DIR)) {
+                        items.push(dirEntry);
+                    }
+                    if (items.length === 0) {
+                        // @ts-ignore - Deno is a global object in Deno runtime
+                        await Deno.remove(this.UPLOADS_DIR);
+                    }
+                } catch (_readError) {
+                    console.log("Directorio uploads ya no existe o esta vacio");
+                }
+            }
+        } catch (error) {
+            console.error(`Error al eliminar carpeta para producto`, error);
+        }
+    }
+
+    private detectarTipoImagen(imagenData: string): string {
+
+      if (imagenData.startsWith('data:image/')) {
+            const match = imagenData.match(/data:image\/([^;]+)/);
+            return match ? match[1] : 'jpg';
+        }
+        
+
+        if (imagenData.startsWith('http://') || imagenData.startsWith('https://') || imagenData.startsWith('file://')) {
+            const url = new URL(imagenData);
+            const pathname = url.pathname.toLowerCase();
+            if (pathname.includes('.png')) return 'png';
+            if (pathname.includes('.jpg') || pathname.includes('.jpeg')) return 'jpg';
+            if (pathname.includes('.gif')) return 'gif';
+            if (pathname.includes('.webp')) return 'webp';
+            if (pathname.includes('.bmp')) return 'bmp';
+            if (pathname.includes('.svg')) return 'svg';
+            return 'jpg';
+        }
+        
+        return 'jpg';
+    }
+
+    private async procesarImagen(imagenData: string): Promise<Uint8Array> {
+        try {
+            console.log(`Procesando imagen - Entrada: ${imagenData.substring(0, 50)}...`);
+            
+            if (imagenData.startsWith('data:image/')) {
+                const base64Data = imagenData.split(',')[1];
+                if (!base64Data) {
+                    throw new Error("Datos base64 invalidos despues del prefijo data:image/");
+                }
+                return Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+            }
+            
+            if (imagenData.startsWith('file://')) {
+                let rutaArchivo = imagenData.replace('file://', '');
+                
+                if (rutaArchivo.startsWith('/') && rutaArchivo.match(/^\/[A-Za-z]:/)) {
+                    rutaArchivo = rutaArchivo.substring(1);
+                }
+                                
+                try {
+                    // @ts-ignore - Deno is a global object in Deno runtime
+                    const stat = await Deno.stat(rutaArchivo);
+                    if (!stat.isFile) {
+                        throw new Error(`La ruta no es un archivo valido: ${rutaArchivo}`);
+                    }
+                    
+                    // @ts-ignore - Deno is a global object in Deno runtime
+                    const fileData = await Deno.readFile(rutaArchivo);
+                    return fileData;
+                } catch (error) {
+                    console.error(`Error al leer archivo`, error);
+                    throw new Error(`No se pudo leer el archivo: ${rutaArchivo}. Verifica que el archivo existe y tienes permisos de lectura.`);
+                }
+            }
+            
+            if (imagenData.startsWith('http://') || imagenData.startsWith('https://')) {
+                const response = await fetch(imagenData);
+                if (!response.ok) {
+                    throw new Error(`Error al descargar imagen: ${response.status} - ${response.statusText}`);
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                return new Uint8Array(arrayBuffer);
+            }
+            
+            if (imagenData.match(/^[A-Za-z0-9+/]+=*$/)) {
+                try {
+                    return Uint8Array.from(atob(imagenData), c => c.charCodeAt(0));
+                } catch (_error) {
+                    throw new Error("El texto parece ser base64 pero no se puede decodificar correctamente");
+                }
+            }
+            
+            throw new Error(`Formato de imagen no reconocido. Recibido: ${imagenData.substring(0, 100)}`);
+            
+        } catch (error) {
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error("Error desconocido al procesar la imagen");
+        }
+    }
+
+    private async guardarImagen(idProducto: number, imagenData: string): Promise<string> {
+        try {
+            
+            const productDir = await this.crearCarpetaProducto(idProducto);
+            
+            const timestamp = Date.now();
+            const extension = this.detectarTipoImagen(imagenData);
+            const nombreArchivo = `imagen_${timestamp}.${extension}`;
+            const rutaCompleta = join(productDir, nombreArchivo);
+
+            console.log(`Guardando imagen como: ${rutaCompleta}`);
+
+            const dataToWrite = await this.procesarImagen(imagenData);
+                        
+            // @ts-ignore - Deno is a global object in Deno runtime
+            await Deno.writeFile(rutaCompleta, dataToWrite);
+            
+            console.log(`Imagen guardada exitosamente`);
+            
+            return join("uploads", idProducto.toString(), nombreArchivo);
+        } catch (error) {
+            console.error("Error al guardar imagen:", error);
+            throw new Error("Error al guardar la imagen: " + (error instanceof Error ? error.message : "Error desconocido"));
+        }
+    }
+}
