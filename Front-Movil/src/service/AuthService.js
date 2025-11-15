@@ -25,7 +25,16 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
-      throw error.response?.data || error.message;
+      // Si hay respuesta del servidor, lanzar el objeto completo del error
+      if (error.response?.data) {
+        throw error.response.data;
+      }
+      // Si no hay respuesta, lanzar un objeto con formato similar
+      throw {
+        success: false,
+        error: 'Error de conexión',
+        message: error.message || 'Error al conectar con el servidor'
+      };
     }
   },
 
@@ -37,7 +46,16 @@ export const authService = {
       const response = await api.post('/auth/register', userData);
       return response.data;
     } catch (error) {
-      throw error.response?.data || error.message;
+      // Si hay respuesta del servidor, lanzar el objeto completo del error
+      if (error.response?.data) {
+        throw error.response.data;
+      }
+      // Si no hay respuesta, lanzar un objeto con formato similar
+      throw {
+        success: false,
+        error: 'Error de conexión',
+        message: error.message || 'Error al conectar con el servidor'
+      };
     }
   },
 

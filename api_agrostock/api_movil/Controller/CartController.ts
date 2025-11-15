@@ -99,12 +99,13 @@ export class CartController {
       console.error("Error al agregar al carrito:", error);
       
       if (error instanceof z.ZodError) {
+        const zodError = error as z.ZodError;
         ctx.response.status = 400;
         ctx.response.body = {
           success: false,
           error: "Datos inválidos",
           message: "Los datos proporcionados no son válidos",
-          details: error.errors.map(err => ({
+          details: zodError.errors.map((err: z.ZodIssue) => ({
             field: err.path.join('.'),
             message: err.message
           }))
@@ -168,12 +169,13 @@ export class CartController {
       console.error("Error al actualizar item del carrito:", error);
       
       if (error instanceof z.ZodError) {
+        const zodError = error as z.ZodError;
         ctx.response.status = 400;
         ctx.response.body = {
           success: false,
           error: "Datos inválidos",
           message: "Los datos proporcionados no son válidos",
-          details: error.errors.map(err => ({
+          details: zodError.errors.map((err: z.ZodIssue) => ({
             field: err.path.join('.'),
             message: err.message
           }))
@@ -415,12 +417,13 @@ export class CartController {
       console.error("Error en checkout:", error);
       
       if (error instanceof z.ZodError) {
+        const zodError = error as z.ZodError;
         ctx.response.status = 400;
         ctx.response.body = {
           success: false,
           error: "Datos inválidos",
           message: "Los datos proporcionados no son válidos",
-          details: error.errors.map(err => ({
+          details: zodError.errors.map((err: z.ZodIssue) => ({
             field: err.path.join('.'),
             message: err.message
           }))

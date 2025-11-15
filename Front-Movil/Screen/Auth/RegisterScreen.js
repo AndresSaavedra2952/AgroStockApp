@@ -54,7 +54,26 @@ export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
 
   useEffect(() => {
-    cargarDepartamentos();
+    // Inicializar conexión y luego cargar departamentos
+    const inicializarYCargar = async () => {
+      try {
+        // Primero intentar inicializar la conexión si es necesario
+        const { inicializarConexion, actualizarURLBase } = await import('../../src/service/conexion');
+        const { actualizarBaseURL } = await import('../../src/service/ApiService');
+        
+        const ip = await inicializarConexion();
+        const nuevaURL = actualizarURLBase(ip);
+        actualizarBaseURL(nuevaURL);
+        console.log('[RegisterScreen] ✅ Conexión inicializada con IP:', ip);
+      } catch (error) {
+        console.warn('[RegisterScreen] ⚠️ No se pudo inicializar conexión automáticamente:', error);
+      }
+      
+      // Luego cargar departamentos
+      cargarDepartamentos();
+    };
+    
+    inicializarYCargar();
   }, []);
 
   useEffect(() => {
@@ -68,12 +87,24 @@ export default function RegisterScreen({ navigation }) {
 
   const cargarDepartamentos = async () => {
     try {
+      console.log('[RegisterScreen] Cargando departamentos...');
       const response = await ubicacionesService.getDepartamentos();
+      console.log('[RegisterScreen] Respuesta de departamentos:', response);
       if (response.success) {
-        setDepartamentos(response.data || []);
+        const deptos = response.data || [];
+        console.log(`[RegisterScreen] ✅ ${deptos.length} departamentos cargados`);
+        setDepartamentos(deptos);
+      } else {
+        console.error('[RegisterScreen] ❌ Error en respuesta:', response.message || response.error);
+        Alert.alert('Error', response.message || 'No se pudieron cargar los departamentos');
       }
     } catch (error) {
-      console.error('Error al cargar departamentos:', error);
+      console.error('[RegisterScreen] ❌ Error al cargar departamentos:', error);
+      const errorMessage = error?.message || error?.error || 'Error al conectar con el servidor';
+      Alert.alert(
+        'Error', 
+        `No se pudieron cargar los departamentos: ${errorMessage}\n\nVerifica que el servidor esté corriendo.`
+      );
     }
   };
 
@@ -174,7 +205,7 @@ export default function RegisterScreen({ navigation }) {
 
       const result = await register(registerData);
       
-      if (result.success && result.usuario) {
+      if (result.success) {
         // Registro exitoso
         const mensaje = formData.rol === 'productor' 
           ? 'Usuario y perfil de productor registrados correctamente. Por favor inicia sesión.'
@@ -184,6 +215,7 @@ export default function RegisterScreen({ navigation }) {
           { text: 'OK', onPress: () => navigation.navigate('Login') },
         ]);
       } else {
+        // Mostrar el mensaje de error del servidor
         Alert.alert('Error', result.message || 'Error al registrar usuario');
       }
     } catch (error) {
@@ -318,8 +350,12 @@ export default function RegisterScreen({ navigation }) {
                           selectedValue={formData.id_departamento}
                           onValueChange={(value) => setFormData({ ...formData, id_departamento: value, id_ciudad: null })}
                           style={styles.picker}
+                          enabled={departamentos.length > 0}
                         >
-                          <Picker.Item label="Selecciona un departamento" value={null} />
+                          <Picker.Item 
+                            label={departamentos.length === 0 ? "Cargando departamentos..." : "Selecciona un departamento"} 
+                            value={null} 
+                          />
                           {departamentos.map((dept) => (
                             <Picker.Item
                               key={dept.id_departamento}
@@ -328,6 +364,11 @@ export default function RegisterScreen({ navigation }) {
                             />
                           ))}
                         </Picker>
+                        {departamentos.length === 0 && (
+                          <Text style={styles.errorText}>
+                            No se pudieron cargar los departamentos. Verifica tu conexión.
+                          </Text>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -759,6 +800,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     marginTop: 4,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#d32f2f',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   inputRow: {
     flexDirection: 'row',

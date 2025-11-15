@@ -21,10 +21,18 @@ export const ubicacionesService = {
       const url = idRegion 
         ? `/departamentos?id_region=${idRegion}`
         : '/departamentos';
+      console.log('[UbicacionesService] 📤 GET', url);
       const response = await api.get(url);
+      console.log('[UbicacionesService] ✅ Respuesta:', response.data);
       return response.data;
     } catch (error) {
-      throw error.response?.data || error.message;
+      console.error('[UbicacionesService] ❌ Error al obtener departamentos:', error);
+      const errorData = error.response?.data || { 
+        success: false, 
+        message: error.message || 'Error al conectar con el servidor',
+        error: error.message 
+      };
+      throw errorData;
     }
   },
 

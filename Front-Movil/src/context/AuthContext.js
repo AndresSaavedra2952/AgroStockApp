@@ -89,13 +89,24 @@ export const AuthProvider = ({ children }) => {
         // según el rol del usuario (consumidor o productor)
         return { success: true, usuario };
       } else {
-        return { success: false, message: response.message || 'Error al iniciar sesión' };
+        return { 
+          success: false, 
+          message: response.message || response.error || 'Error al iniciar sesión' 
+        };
       }
     } catch (error) {
       console.error('Error en login:', error);
+      // Manejar errores del backend
+      // El error puede ser un objeto con {success, error, message} o un string
+      if (typeof error === 'object' && error !== null) {
+        return {
+          success: false,
+          message: error.message || error.error || 'Error al iniciar sesión. Verifica tus credenciales.'
+        };
+      }
       return { 
         success: false, 
-        message: error.message || error.error || 'Error al iniciar sesión. Verifica tus credenciales.' 
+        message: error || 'Error al iniciar sesión. Verifica tus credenciales.' 
       };
     }
   };
@@ -104,18 +115,33 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authService.register(userData);
       
-      if (response.success && response.usuario) {
+      if (response.success) {
         // El registro no inicia sesión automáticamente
         // El usuario debe iniciar sesión después
-        return { success: true, message: response.message };
+        return { 
+          success: true, 
+          message: response.message,
+          usuario: response.usuario || null
+        };
       } else {
-        return { success: false, message: response.message || 'Error al registrar usuario' };
+        return { 
+          success: false, 
+          message: response.message || response.error || 'Error al registrar usuario' 
+        };
       }
     } catch (error) {
       console.error('Error en register:', error);
+      // Manejar errores del backend
+      // El error puede ser un objeto con {success, error, message} o un string
+      if (typeof error === 'object' && error !== null) {
+        return {
+          success: false,
+          message: error.message || error.error || 'Error al registrar usuario'
+        };
+      }
       return { 
         success: false, 
-        message: error.message || 'Error al registrar usuario' 
+        message: error || 'Error al registrar usuario'
       };
     }
   };
