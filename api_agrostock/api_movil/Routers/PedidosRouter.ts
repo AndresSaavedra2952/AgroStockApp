@@ -1,5 +1,5 @@
 import { Router } from "../Dependencies/dependencias.ts";
-import { getPedidos, postPedido, putPedido, deletePedido, getMisPedidos} from "../Controller/PedidosController.ts";
+import { getPedidos, postPedido, putPedido, deletePedido, getMisPedidos, getPedidosRealizados, getPedidosRecibidos} from "../Controller/PedidosController.ts";
 import { AuthMiddleware } from "../Middlewares/AuthMiddleware.ts";
 
 const pedidosRouter = new Router();
@@ -8,6 +8,8 @@ const pedidosRouter = new Router();
 // Admin puede ver todos los pedidos, productor y consumidor solo los suyos
 pedidosRouter.get("/pedidos", AuthMiddleware(['admin']), getPedidos); // Solo admin puede ver todos los pedidos
 pedidosRouter.get("/pedidos/mis-pedidos", AuthMiddleware(['productor', 'consumidor']), getMisPedidos); // Productores y consumidores pueden ver sus pedidos
+pedidosRouter.get("/pedidos/realizados", AuthMiddleware(['consumidor']), getPedidosRealizados); // Consumidores pueden ver sus pedidos realizados
+pedidosRouter.get("/pedidos/recibidos", AuthMiddleware(['productor']), getPedidosRecibidos); // Productores pueden ver sus pedidos recibidos
 
 // Crear pedido: solo consumidor (o admin puede crear en nombre de otros)
 pedidosRouter.post("/pedidos", AuthMiddleware(['consumidor', 'admin']), postPedido);

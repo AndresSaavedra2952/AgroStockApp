@@ -303,3 +303,87 @@ export const getMisPedidos = async (ctx: Context) => {
     };
   }
 };
+
+// 📌 Obtener pedidos realizados (para consumidores)
+export const getPedidosRealizados = async (ctx: Context) => {
+  try {
+    const user = ctx.state.user;
+    
+    if (!user) {
+      ctx.response.status = 401;
+      ctx.response.body = {
+        success: false,
+        message: "No autenticado.",
+      };
+      return;
+    }
+
+    if (user.rol !== 'consumidor') {
+      ctx.response.status = 403;
+      ctx.response.body = {
+        success: false,
+        message: "Solo los consumidores pueden ver sus pedidos realizados.",
+      };
+      return;
+    }
+
+    const objPedido = new PedidosModel();
+    const pedidos = await objPedido.ObtenerPedidosPorConsumidor(user.id);
+
+    ctx.response.status = 200;
+    ctx.response.body = {
+      success: true,
+      message: "Pedidos encontrados.",
+      data: pedidos,
+    };
+  } catch (error) {
+    console.error("Error en getPedidosRealizados:", error);
+    ctx.response.status = 500;
+    ctx.response.body = {
+      success: false,
+      message: "Error interno del servidor.",
+    };
+  }
+};
+
+// 📌 Obtener pedidos recibidos (para productores)
+export const getPedidosRecibidos = async (ctx: Context) => {
+  try {
+    const user = ctx.state.user;
+    
+    if (!user) {
+      ctx.response.status = 401;
+      ctx.response.body = {
+        success: false,
+        message: "No autenticado.",
+      };
+      return;
+    }
+
+    if (user.rol !== 'productor') {
+      ctx.response.status = 403;
+      ctx.response.body = {
+        success: false,
+        message: "Solo los productores pueden ver sus pedidos recibidos.",
+      };
+      return;
+    }
+
+    const objPedido = new PedidosModel();
+    const pedidos = await objPedido.ObtenerPedidosPorProductor(user.id);
+
+    ctx.response.status = 200;
+    ctx.response.body = {
+      success: true,
+      message: "Pedidos encontrados.",
+      data: pedidos,
+    };
+  } catch (error) {
+    console.error("Error en getPedidosRecibidos:", error);
+    ctx.response.status = 500;
+    ctx.response.body = {
+      success: false,
+      message: "Error interno del servidor.",
+    };
+  }
+};

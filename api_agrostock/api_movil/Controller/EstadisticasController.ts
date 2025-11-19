@@ -248,4 +248,109 @@ export class EstadisticasController {
       ctx.response.body = { error: "Error interno del servidor" };
     }
   }
+
+  // 📌 Obtener estadísticas de ventas del usuario autenticado (para productores)
+  static async ObtenerMisVentas(ctx: Context) {
+    try {
+      const user = ctx.state.user;
+      if (!user || !user.id) {
+        ctx.response.status = 401;
+        ctx.response.body = {
+          success: false,
+          error: "UNAUTHORIZED",
+          message: "Usuario no autenticado"
+        };
+        return;
+      }
+
+      const userId = user.id;
+      const { conexion } = await import("../Models/Conexion.ts");
+
+      // Estadísticas de productos
+      const productosStats = await conexion.query(`
+        SELECT 
+          COUNT(*) as total_productos,
+          COUNT(CASE WHEN disponible = 1 THEN 1 END) as productos_activos,
+          COUNT(CASE WHEN disponible = 0 THEN 1 END) as productos_inactivos,
+          COUNT(CASE WHEN stock <= stock_minimo AND stock > 0 THEN 1 END) as stock_bajo,
+          COUNT(CASE WHEN stock = 0 OR stock IS NULL THEN 1 END) as productos_agotados,
+          SUM(stock) as stock_total,
+          AVG(precio) as precio_promedio
+        FROM productos
+        WHERE id_usuario = ?
+      `, [userId]);
+
+      // Estadísticas de pedidos
+      const pedidosStats = await conexion.query(`
+        SELECT 
+          COUNT(*) as total_pedidos,
+          COUNT(CASE WHEN estado = 'pendiente' THEN 1 END) as pedidos_pendientes,
+          COUNT(CASE WHEN estado = 'confirmado' THEN 1 END) as pedidos_confirmados,
+          COUNT(CASE WHEN estado = 'en_preparacion' THEN 1 END) as pedidos_en_preparacion,
+          COUNT(CASE WHEN estado = 'en_camino' THEN 1 END) as pedidos_en_camino,
+          COUNT(CASE WHEN estado = 'entregado' THEN 1 END) as pedidos_entregados,
+          COUNT(CASE WHEN estado = 'cancelado' THEN 1 END) as pedidos_cancelados,
+          SUM(CASE WHEN estado = 'entregado' THEN total ELSE 0 END) as ventas_totales,
+          SUM(CASE WHEN estado IN ('pendiente', 'confirmado', 'en_preparacion', 'en_camino') THEN total ELSE 0 END) as ventas_pendientes,
+          AVG(CASE WHEN estado = 'entregado' THEN total ELSE NULL END) as promedio_venta
+        FROM pedidos
+        WHERE id_productor = ?
+      `, [userId]);
+
+      // Pedidos por mes (últimos 6 meses)
+      const pedidosPorMes = await conexion.query(`
+        SELECT 
+          DATE_FORMAT(fecha_pedido, '%Y-%m') as mes,
+          COUNT(*) as total_pedidos,
+          SUM(CASE WHEN estado = 'entregado' THEN total ELSE 0 END) as ventas_mes
+        FROM pedidos
+        WHERE id_productor = ? 
+          AND fecha_pedido >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+        GROUP BY DATE_FORMAT(fecha_pedido, '%Y-%m')
+        ORDER BY mes DESC
+      `, [userId]);
+
+      // Obtener estadísticas del modelo también
+      const estadisticasModel = new EstadisticasModel();
+      const estadisticasUsuario = await estadisticasModel.ObtenerEstadisticasUsuario(userId);
+
+      ctx.response.status = 200;
+      ctx.response.body = {
+        success: true,
+        data: {
+          productos: productosStats[0] || {
+            total_productos: 0,
+            productos_activos: 0,
+            productos_inactivos: 0,
+            stock_bajo: 0,
+            productos_agotados: 0,
+            stock_total: 0,
+            precio_promedio: 0
+          },
+          pedidos: pedidosStats[0] || {
+            total_pedidos: 0,
+            pedidos_pendientes: 0,
+            pedidos_confirmados: 0,
+            pedidos_en_preparacion: 0,
+            pedidos_en_camino: 0,
+            pedidos_entregados: 0,
+            pedidos_cancelados: 0,
+            ventas_totales: 0,
+            ventas_pendientes: 0,
+            promedio_venta: 0
+          },
+          pedidos_por_mes: pedidosPorMes || [],
+          estadisticas_usuario: estadisticasUsuario
+        }
+      };
+    } catch (error) {
+      console.error("Error en ObtenerMisVentas:", error);
+      ctx.response.status = 500;
+      ctx.response.body = {
+        success: false,
+        error: "Error interno del servidor",
+        message: "Error al obtener estadísticas de ventas"
+      };
+    }
+  }
 }

@@ -28,29 +28,7 @@ const productosSchema = z.object({
   unidad_medida: z.string().optional(),
   disponible: z.boolean().optional(),
   imagen_principal: z.string().url().optional().nullable(),
-  imagenData: z.string().optional().refine(
-    (val: string | undefined) => {
-      if (!val) return true;
-      if (typeof val !== 'string') return false;
-            if (val.startsWith('http://') || val.startsWith('https://')) {
-        return true;
-      }
-      if (val.startsWith('file://')) {
-        return true;
-      }
-      
-      if (val.startsWith('data:image/')) {
-        return true;
-      }
-        if (val.match(/^[A-Za-z0-9+/]+=*$/)) {
-        return true;
-      }
-      
-      return false;
-    },
-
-  ),
-});
+}).strip(); // Eliminar campos desconocidos (como imagenData) sin validarlos
 
 const productosUpdateSchema = productosSchema.extend({
   id_producto: z.number().int().positive(),
@@ -419,9 +397,50 @@ export const getProductoPorId = async (ctx: RouterContext<"/productos/:id">) => 
 export const postProducto = async (ctx: Context) => {
   try {
     const body = await ctx.request.body.json();
-    const validated = productosSchema.parse(body);
+    
+    // Extraer imagenData ANTES de validar con Zod
+    const imagenDataRaw = body.imagenData;
+    
+    // Log para debugging
+    console.log(`[ProductosController.postProducto] Body recibido:`, {
+      nombre: body.nombre,
+      precio: body.precio,
+      stock: body.stock,
+      imagenData: imagenDataRaw ? 
+        (typeof imagenDataRaw === 'string' ? `${imagenDataRaw.substring(0, 100)}... (${imagenDataRaw.length} chars)` : `Tipo: ${typeof imagenDataRaw}`) 
+        : 'null/undefined',
+      tipoImagenData: typeof imagenDataRaw,
+    });
+    
+    console.log(`[ProductosController.postProducto] Validando body completo con Zod (imagenData será ignorado por .strip())...`);
+    
+    // Validar el body completo - .strip() eliminará imagenData automáticamente
+    let validated;
+    try {
+      validated = productosSchema.parse(body);
+      console.log(`[ProductosController.postProducto] ✅ Validación exitosa.`);
+    } catch (zodError) {
+      console.error(`[ProductosController.postProducto] ❌ Error de validación Zod:`, zodError);
+      if (zodError instanceof z.ZodError) {
+        console.error(`[ProductosController.postProducto] Errores de Zod:`, JSON.stringify(zodError.errors, null, 2));
+      }
+      throw zodError;
+    }
+    
+    // Validar y normalizar imagenData manualmente
+    let imagenData: string | undefined = undefined;
+    if (imagenDataRaw !== null && imagenDataRaw !== undefined) {
+      if (typeof imagenDataRaw === 'string' && imagenDataRaw.trim().length > 0) {
+        imagenData = imagenDataRaw;
+        console.log(`[ProductosController.postProducto] ✅ imagenData validado: tipo=string, longitud=${imagenData.length}`);
+      } else {
+        console.log(`[ProductosController.postProducto] ⚠️ imagenData ignorado (tipo inválido o vacío):`, typeof imagenDataRaw);
+      }
+    } else {
+      console.log(`[ProductosController.postProducto] ⚠️ No se recibió imagenData`);
+    }
 
-    const { imagenData, imagen_principal, ...productoData } = validated;
+    const { imagen_principal, ...productoData } = validated;
 
     const productoCompleto: ProductoData = {
       id_producto: 0,
@@ -439,11 +458,21 @@ export const postProducto = async (ctx: Context) => {
     };
 
     const objProductos = new ProductosModel(productoCompleto);
+    // Normalizar null a undefined para imagenData
+    const imagenDataNormalizada = imagenData === null ? undefined : imagenData;
+    
+    // Log para debugging
+    if (imagenDataNormalizada) {
+      console.log(`[ProductosController] ✅ imagenData recibida: tipo=${typeof imagenDataNormalizada}, longitud=${imagenDataNormalizada.length}, prefijo=${imagenDataNormalizada.substring(0, 30)}...`);
+    } else {
+      console.log(`[ProductosController] ⚠️ No se recibió imagenData`);
+    }
+    
     // Si hay imagen_principal (URL), actualizarla después de crear el producto
-    const result = await objProductos.AgregarProducto(imagenData);
+    const result = await objProductos.AgregarProducto(imagenDataNormalizada);
     
     // Si se creó exitosamente y hay imagen_principal (URL), actualizarla
-    if (result.success && result.producto && imagen_principal && !imagenData) {
+    if (result.success && result.producto && imagen_principal && !imagenDataNormalizada) {
       await conexion.execute(
         "UPDATE productos SET imagen_principal = ? WHERE id_producto = ?",
         [imagen_principal, result.producto.id_producto]
@@ -556,7 +585,9 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
     };
 
     const objProductos = new ProductosModel(productoCompleto);
-    const result = await objProductos.EditarProducto(imagenData);
+    // Normalizar null a undefined para imagenData
+    const imagenDataNormalizada = imagenData === null ? undefined : imagenData;
+    const result = await objProductos.EditarProducto(imagenDataNormalizada);
 
     ctx.response.status = result.success ? 200 : 404;
     ctx.response.body = {
@@ -814,8 +845,10 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
       return;
     }
 
-    const { conexion } = await import("../Models/Conexion.ts");
+    const { obtenerConexion } = await import("../Models/Conexion.ts");
+    const conexion = await obtenerConexion();
     
+    // Usar LEFT JOINs para evitar errores si faltan relaciones
     const producto = await conexion.query(`
       SELECT 
         p.*,
@@ -826,16 +859,16 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
         c.nombre as ciudad_origen,
         d.nombre as departamento_origen,
         r.nombre as region_origen,
-        GROUP_CONCAT(cat.nombre) as categorias,
+        GROUP_CONCAT(DISTINCT cat.nombre) as categorias,
         AVG(res.calificacion) as calificacion_promedio,
-        COUNT(res.id_resena) as total_resenas
+        COUNT(DISTINCT res.id_resena) as total_resenas
       FROM productos p
-      INNER JOIN usuarios u ON p.id_usuario = u.id_usuario
-      INNER JOIN ciudades c ON p.id_ciudad_origen = c.id_ciudad
-      INNER JOIN departamentos d ON c.id_departamento = d.id_departamento
-      INNER JOIN regiones r ON d.id_region = r.id_region
+      LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
+      LEFT JOIN ciudades c ON p.id_ciudad_origen = c.id_ciudad
+      LEFT JOIN departamentos d ON c.id_departamento = d.id_departamento
+      LEFT JOIN regiones r ON d.id_region = r.id_region
       LEFT JOIN productos_categorias pc ON p.id_producto = pc.id_producto
-      LEFT JOIN categorias cat ON pc.id_categoria = cat.id_categoria AND cat.activa = 1
+      LEFT JOIN categorias cat ON pc.id_categoria = cat.id_categoria AND (cat.activa = 1 OR cat.activa IS NULL)
       LEFT JOIN resenas res ON p.id_producto = res.id_producto
       WHERE p.id_producto = ?
       GROUP BY p.id_producto
@@ -852,13 +885,21 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
 
     const objProductos = new ProductosModel();
     const baseUrl = getBaseUrl(ctx);
+    const productoData = producto[0] as any;
+    
+    // Corregir el nombre del campo de imagen
+    const imagenPrincipal = productoData.imagen_principal || null;
+    
     const productoDetallado = {
-      ...producto[0],
-      imagenUrl: producto[0].imagenPrincipal 
-        ? objProductos.construirUrlImagen(producto[0].imagenPrincipal, baseUrl)
+      ...productoData,
+      imagenUrl: imagenPrincipal 
+        ? objProductos.construirUrlImagen(imagenPrincipal, baseUrl)
         : null,
-      calificacion_promedio: producto[0].calificacion_promedio ? parseFloat(producto[0].calificacion_promedio).toFixed(1) : null,
-      total_resenas: parseInt(producto[0].total_resenas) || 0
+      calificacion_promedio: productoData.calificacion_promedio 
+        ? parseFloat(String(productoData.calificacion_promedio)).toFixed(1) 
+        : null,
+      total_resenas: parseInt(String(productoData.total_resenas)) || 0,
+      categorias: productoData.categorias ? String(productoData.categorias).split(',') : []
     };
 
     ctx.response.status = 200;
@@ -869,10 +910,15 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
     };
   } catch (error) {
     console.error("Error en getProductoDetallado:", error);
+    console.error("Error details:", error instanceof Error ? error.message : String(error));
+    if (error instanceof Error && error.stack) {
+      console.error("Error stack:", error.stack);
+    }
     ctx.response.status = 500;
     ctx.response.body = {
       success: false,
       message: "Error interno del servidor.",
+      error: error instanceof Error ? error.message : String(error)
     };
   }
 };

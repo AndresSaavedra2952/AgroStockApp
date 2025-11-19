@@ -104,38 +104,91 @@ function ProductorTabs() {
 // Navegación principal de la app
 export default function AppNavegacion() {
   const { user, loading } = useAuth();
+  const [hasError, setHasError] = React.useState(false);
 
+  // Mostrar pantalla de carga mientras se verifica la sesión
   if (loading) {
     return <LoadingScreen />;
   }
 
-  return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {!user ? (
-        // Usuario no autenticado - Pantalla de inicio pública y autenticación
-        <>
-          <Stack.Screen name="HomePublic" component={HomeScreen} />
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="Productos" component={ProductosScreen} />
-          <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
-        </>
-      ) : user.rol === 'consumidor' ? (
-        // Usuario consumidor
-        <>
-          <Stack.Screen name="ConsumidorMain" component={ConsumidorTabs} />
-          <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
-          <Stack.Screen name="Mensajes" component={MensajesScreen} options={{ headerShown: true }} />
-        </>
-      ) : user.rol === 'productor' ? (
-        // Usuario productor
-        <>
-          <Stack.Screen name="ProductorMain" component={ProductorTabs} />
-          <Stack.Screen name="AlertasStock" component={AlertasStockScreen} options={{ headerShown: true, title: 'Alertas de Stock' }} />
-        </>
-      ) : null}
-    </Stack.Navigator>
-  );
+  // Validar que user sea válido si existe
+  const isValidUser = user && user.id_usuario && user.rol;
+  const userRol = isValidUser ? user.rol : null;
+
+  // Si hay error, mostrar login
+  if (hasError) {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Login" component={LoginScreen} />
+      </Stack.Navigator>
+    );
+  }
+
+  // Determinar la ruta inicial según el estado del usuario
+  const getInitialRouteName = () => {
+    if (!isValidUser) {
+      return 'HomePublic';
+    } else if (userRol === 'consumidor') {
+      return 'ConsumidorMain';
+    } else if (userRol === 'productor') {
+      return 'ProductorMain';
+    } else {
+      return 'Login';
+    }
+  };
+
+  try {
+    return (
+      <Stack.Navigator 
+        initialRouteName={getInitialRouteName()}
+        screenOptions={{ headerShown: false }}
+        onError={(error) => {
+          console.error('❌ Error en Stack.Navigator:', error);
+          setHasError(true);
+        }}
+      >
+        {!isValidUser ? (
+          // Usuario no autenticado - Pantalla de inicio pública y autenticación
+          <>
+            <Stack.Screen name="HomePublic" component={HomeScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="Productos" component={ProductosScreen} />
+            <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
+          </>
+        ) : userRol === 'consumidor' ? (
+          // Usuario consumidor
+          <>
+            <Stack.Screen name="ConsumidorMain" component={ConsumidorTabs} />
+            <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
+            <Stack.Screen name="Mensajes" component={MensajesScreen} options={{ headerShown: true }} />
+          </>
+        ) : userRol === 'productor' ? (
+          // Usuario productor
+          <>
+            <Stack.Screen name="ProductorMain" component={ProductorTabs} />
+            <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
+            <Stack.Screen name="AlertasStock" component={AlertasStockScreen} options={{ headerShown: true, title: 'Alertas de Stock' }} />
+          </>
+        ) : (
+          // Rol no reconocido - mostrar login
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        )}
+      </Stack.Navigator>
+    );
+  } catch (error) {
+    console.error('❌ Error en AppNavegacion:', error);
+    setHasError(true);
+    // En caso de error, mostrar login
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Login" component={LoginScreen} />
+      </Stack.Navigator>
+    );
+  }
 }
 
 

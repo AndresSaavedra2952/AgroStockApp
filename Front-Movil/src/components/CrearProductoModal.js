@@ -10,10 +10,11 @@ import {
   Alert,
   Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../context/AuthContext';
 import productosService from '../service/ProductosService';
 import ubicacionesService from '../service/UbicacionesService';
-import * as ImagePicker from 'expo-image-picker';
 
 export default function CrearProductoModal({ visible, onClose, onSuccess }) {
   const { user } = useAuth();
@@ -28,6 +29,7 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
     pesoAprox: '',
   });
   const [imagen, setImagen] = useState(null);
+  const [imagenBase64, setImagenBase64] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const seleccionarImagen = async () => {
@@ -42,15 +44,58 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.8,
+      base64: true, // Obtener base64 directamente de ImagePicker
     });
 
-    if (!result.canceled) {
-      setImagen(result.assets[0].uri);
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setImagen(asset.uri);
+      
+      // Si ImagePicker devolvió base64, usarlo directamente
+      if (asset.base64) {
+        console.log('✅ ImagePicker devolvió base64 directamente');
+        // Detectar tipo MIME
+        let mimeType = 'image/jpeg';
+        if (asset.type) {
+          mimeType = asset.type;
+        } else if (asset.uri.toLowerCase().includes('.png')) {
+          mimeType = 'image/png';
+        } else if (asset.uri.toLowerCase().includes('.gif')) {
+          mimeType = 'image/gif';
+        } else if (asset.uri.toLowerCase().includes('.webp')) {
+          mimeType = 'image/webp';
+        }
+        
+        const dataUri = `data:${mimeType};base64,${asset.base64}`;
+        console.log(`✅ Imagen convertida a data URI: ${dataUri.substring(0, 50)}... (${dataUri.length} chars)`);
+        setImagenBase64(dataUri);
+      } else {
+        console.log('⚠️ ImagePicker no devolvió base64, usando FileSystem');
+        // Si no hay base64, intentar leerlo con FileSystem
+        try {
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          let mimeType = 'image/jpeg';
+          const uriLower = asset.uri.toLowerCase();
+          if (uriLower.includes('.png')) {
+            mimeType = 'image/png';
+          } else if (uriLower.includes('.gif')) {
+            mimeType = 'image/gif';
+          } else if (uriLower.includes('.webp')) {
+            mimeType = 'image/webp';
+          }
+          
+          setImagenBase64(`data:${mimeType};base64,${base64}`);
+        } catch (error) {
+          console.error('Error al leer imagen:', error);
+          Alert.alert('Error', 'No se pudo procesar la imagen');
+          setImagen(null);
+          setImagenBase64(null);
+        }
+      }
     }
-  };
-
-  const convertirImagenABase64 = async (uri) => {
-    return null; // El backend manejará la imagen
   };
 
   const crearProducto = async () => {
@@ -61,20 +106,45 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
 
     setLoading(true);
     try {
-      const imagenData = await convertirImagenABase64(imagen);
+      // Log para debugging
+      console.log('📤 Creando producto con datos:', {
+        nombre: formData.nombre,
+        tieneImagen: !!imagenBase64,
+        longitudImagen: imagenBase64 ? imagenBase64.length : 0,
+        prefijoImagen: imagenBase64 ? imagenBase64.substring(0, 50) : 'N/A',
+      });
+
       const productoData = {
-        ...formData,
-        id_usuario: user.id,
+        nombre: formData.nombre,
+        descripcion: formData.descripcion,
         precio: parseFloat(formData.precio),
         stock: parseInt(formData.stock),
-        stockMinimo: parseInt(formData.stockMinimo),
-        pesoAprox: parseFloat(formData.pesoAprox) || 0,
-        imagenData: imagenData,
+        stock_minimo: parseInt(formData.stockMinimo),
+        id_usuario: user.id,
+        id_ciudad_origen: formData.id_ciudad_origen,
+        unidad_medida: formData.unidadMedida || 'kg',
+        disponible: true,
       };
+      
+      // Solo incluir imagenData si existe y es un string válido
+      if (imagenBase64 && typeof imagenBase64 === 'string' && imagenBase64.length > 0) {
+        productoData.imagenData = imagenBase64;
+      }
+
+      console.log('📤 Enviando productoData al backend:', {
+        ...productoData,
+        imagenData: imagenBase64 ? `${imagenBase64.substring(0, 50)}... (${imagenBase64.length} chars)` : 'null',
+      });
 
       const response = await productosService.crearProducto(productoData);
       if (response.success) {
-        Alert.alert('Éxito', 'Producto creado correctamente');
+        if (response.warning) {
+          Alert.alert('Producto creado', response.message, [
+            { text: 'OK' }
+          ]);
+        } else {
+          Alert.alert('Éxito', 'Producto creado correctamente');
+        }
         resetForm();
         onSuccess && onSuccess();
         onClose();
@@ -100,6 +170,7 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
       pesoAprox: '',
     });
     setImagen(null);
+    setImagenBase64(null);
   };
 
   return (

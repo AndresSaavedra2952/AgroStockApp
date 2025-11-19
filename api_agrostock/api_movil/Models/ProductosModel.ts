@@ -214,26 +214,46 @@ export class ProductosModel {
             const nuevoProducto = queryResult[0] as ProductoData;
 
             let rutaImagen = null;
+            let errorImagen: string | null = null;
+            
             if (imagenData) {
                 try {
+                    console.log(`[ProductosModel] Intentando guardar imagen para producto ${nuevoProducto.id_producto}`);
+                    console.log(`[ProductosModel] Tipo de imagenData: ${typeof imagenData}, Longitud: ${imagenData.length}, Primeros 50 chars: ${imagenData.substring(0, 50)}`);
+                    
                     rutaImagen = await this.guardarImagen(nuevoProducto.id_producto, imagenData);
+                    console.log(`[ProductosModel] ✅ Imagen guardada exitosamente en: ${rutaImagen}`);
                     
                     await conexion.execute("UPDATE productos SET imagen_principal = ? WHERE id_producto = ?", 
                     [rutaImagen, nuevoProducto.id_producto]
                     );
+                    console.log(`[ProductosModel] ✅ imagen_principal actualizada en BD: ${rutaImagen}`);
                 } catch (imageError) {
-                    console.error("Error al procesar imagen:", imageError);
+                    const errorMsg = imageError instanceof Error ? imageError.message : String(imageError);
+                    console.error(`[ProductosModel] ❌ Error al procesar imagen:`, errorMsg);
+                    console.error(`[ProductosModel] Stack trace:`, imageError instanceof Error ? imageError.stack : 'No stack trace');
+                    errorImagen = errorMsg;
+                    // No hacer rollback del producto, pero registrar el error
+                    // El producto se creará sin imagen
                 }
+            } else {
+                console.log(`[ProductosModel] ⚠️ No se proporcionó imagenData para el producto ${nuevoProducto.id_producto}`);
             }
 
             await conexion.execute("COMMIT");
 
             const productoFinal = await conexion.query("SELECT * FROM productos WHERE id_producto = ?", [nuevoProducto.id_producto]);
 
+            let mensaje = "Producto agregado exitosamente.";
+            if (errorImagen) {
+                mensaje += ` ⚠️ Advertencia: No se pudo guardar la imagen: ${errorImagen}`;
+            }
+
             return {
                 success: true,
-                message: "Producto agregado exitosamente.",
-                producto: productoFinal[0] as ProductoData
+                message: mensaje,
+                producto: productoFinal[0] as ProductoData,
+                ...(errorImagen && { warning: `Error al guardar imagen: ${errorImagen}` })
             };
 
         } catch (error) {
@@ -534,26 +554,36 @@ export class ProductosModel {
 
     private async guardarImagen(idProducto: number, imagenData: string): Promise<string> {
         try {
+            console.log(`[ProductosModel.guardarImagen] Iniciando guardado de imagen para producto ${idProducto}`);
+            console.log(`[ProductosModel.guardarImagen] Tipo de imagenData: ${typeof imagenData}, Longitud: ${imagenData.length}`);
             
             const productDir = await this.crearCarpetaProducto(idProducto);
+            console.log(`[ProductosModel.guardarImagen] Carpeta creada: ${productDir}`);
             
             const timestamp = Date.now();
             const extension = this.detectarTipoImagen(imagenData);
+            console.log(`[ProductosModel.guardarImagen] Extensión detectada: ${extension}`);
+            
             const nombreArchivo = `imagen_${timestamp}.${extension}`;
             const rutaCompleta = join(productDir, nombreArchivo);
 
-            console.log(`Guardando imagen como: ${rutaCompleta}`);
+            console.log(`[ProductosModel.guardarImagen] Guardando imagen como: ${rutaCompleta}`);
 
             const dataToWrite = await this.procesarImagen(imagenData);
+            console.log(`[ProductosModel.guardarImagen] Imagen procesada, tamaño: ${dataToWrite.length} bytes`);
                         
             // @ts-ignore - Deno is a global object in Deno runtime
             await Deno.writeFile(rutaCompleta, dataToWrite);
             
-            console.log(`Imagen guardada exitosamente`);
+            console.log(`[ProductosModel.guardarImagen] ✅ Imagen guardada exitosamente en: ${rutaCompleta}`);
             
-            return join("uploads", idProducto.toString(), nombreArchivo);
+            const rutaRelativa = join("uploads", idProducto.toString(), nombreArchivo);
+            console.log(`[ProductosModel.guardarImagen] Ruta relativa: ${rutaRelativa}`);
+            
+            return rutaRelativa;
         } catch (error) {
-            console.error("Error al guardar imagen:", error);
+            console.error(`[ProductosModel.guardarImagen] ❌ Error al guardar imagen:`, error);
+            console.error(`[ProductosModel.guardarImagen] Stack trace:`, error instanceof Error ? error.stack : 'No stack trace');
             throw new Error("Error al guardar la imagen: " + (error instanceof Error ? error.message : "Error desconocido"));
         }
     }
