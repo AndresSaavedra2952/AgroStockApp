@@ -1,4 +1,4 @@
-import { obtenerConexion } from "./Conexion.ts";
+import { conexion } from "./Conexion.ts";
 
 interface UsuarioData {
   id_usuario: number | null;
@@ -45,7 +45,6 @@ export class Usuario {
   // 📌 Listar todos los usuarios
   public async ListarUsuarios(): Promise<UsuarioData[]> {
     try {
-      const conexion = await obtenerConexion();
       const result = await conexion.query("SELECT * FROM usuarios");
       if (!result || result.length === 0) {
         return [];
@@ -85,42 +84,17 @@ export class Usuario {
         throw new Error("Faltan campos requeridos para insertar usuario.");
       }
 
-      const conexion = await obtenerConexion();
       await conexion.execute("START TRANSACTION");
 
-      // Asegurar que el password sea un string antes de guardarlo
-      const passwordString = password ? String(password) : null;
-      console.log(`[UsuarioModel] Password a guardar (tipo): ${typeof passwordString}`);
-      console.log(`[UsuarioModel] Password a guardar (longitud): ${passwordString?.length || 'NULL'}`);
-      console.log(`[UsuarioModel] Password a guardar (primeros 50 chars): ${passwordString?.substring(0, 50) || 'NULL'}...`);
-      
       const result = await conexion.execute(
         "INSERT INTO usuarios (nombre, email, password, telefono, direccion, id_ciudad, rol, activo, email_verificado) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)",
-        [nombre, email, passwordString, telefono || null, direccion || null, id_ciudad || null, rol]
+        [nombre, email, password, telefono || null, direccion || null, id_ciudad || null, rol]
       );
 
       if (result && result.affectedRows && result.affectedRows > 0) {
         const [usuario] = await conexion.query("SELECT * FROM usuarios ORDER BY id_usuario DESC LIMIT 1");
 
         await conexion.execute("COMMIT");
-
-        // Verificar que el password se guardó correctamente
-        console.log(`[UsuarioModel] ✅ Usuario insertado: ID=${usuario.id_usuario}, Email=${usuario.email}`);
-        console.log(`[UsuarioModel] Password guardado (tipo): ${typeof usuario.password}`);
-        console.log(`[UsuarioModel] Password guardado (longitud): ${usuario.password?.length || 'NULL'}`);
-        console.log(`[UsuarioModel] Password guardado (primeros 50 chars): ${usuario.password?.substring(0, 50) || 'NULL'}...`);
-        console.log(`[UsuarioModel] Password guardado (últimos 20 chars): ...${usuario.password?.substring(Math.max(0, (usuario.password?.length || 0) - 20)) || 'NULL'}`);
-        
-        // Verificar que el hash guardado coincida con el enviado
-        if (passwordString && usuario.password) {
-          const hashCoincide = passwordString === String(usuario.password);
-          console.log(`[UsuarioModel] ¿Hash guardado coincide con el enviado? ${hashCoincide}`);
-          if (!hashCoincide) {
-            console.warn(`[UsuarioModel] ⚠️ ADVERTENCIA: El hash guardado NO coincide con el enviado!`);
-            console.warn(`[UsuarioModel]   Enviado: "${passwordString.substring(0, 50)}..." (${passwordString.length} chars)`);
-            console.warn(`[UsuarioModel]   Guardado: "${String(usuario.password).substring(0, 50)}..." (${String(usuario.password).length} chars)`);
-          }
-        }
 
         return {
           success: true,
@@ -131,12 +105,7 @@ export class Usuario {
         throw new Error("No se pudo insertar el usuario.");
       }
     } catch (error) {
-      try {
-        const conexion = await obtenerConexion();
-        await conexion.execute("ROLLBACK");
-      } catch (rollbackError) {
-        console.error("Error al hacer rollback:", rollbackError);
-      }
+      await conexion.execute("ROLLBACK");
       return {
         success: false,
         message: error instanceof Error ? error.message : "Error interno del servidor",
@@ -147,7 +116,6 @@ export class Usuario {
   // 📌 Eliminar usuario
   public async EliminarUsuario(id_usuario: number): Promise<{ success: boolean; message: string }> {
     try {
-      const conexion = await obtenerConexion();
       await conexion.execute("START TRANSACTION");
 
       const result = await conexion.execute("DELETE FROM usuarios WHERE id_usuario = ?", [id_usuario]);
@@ -162,12 +130,7 @@ export class Usuario {
         throw new Error("No se encontro el usuario a eliminar.");
       }
     } catch (error) {
-      try {
-        const conexion = await obtenerConexion();
-        await conexion.execute("ROLLBACK");
-      } catch (rollbackError) {
-        console.error("Error al hacer rollback:", rollbackError);
-      }
+      await conexion.execute("ROLLBACK");
       return {
         success: false,
         message: error instanceof Error ? error.message : "Error interno del servidor",
@@ -184,7 +147,6 @@ export class Usuario {
 
       const { id_usuario, nombre, email, password, telefono, direccion, id_ciudad, rol, activo, email_verificado, foto_perfil } = this._objUsuario;
 
-      const conexion = await obtenerConexion();
       await conexion.execute("START TRANSACTION");
 
       // Si hay password, actualizarlo, si no, mantener el actual
@@ -216,12 +178,7 @@ export class Usuario {
         throw new Error("No se pudo actualizar el usuario o no se encontro.");
       }
     } catch (error) {
-      try {
-        const conexion = await obtenerConexion();
-        await conexion.execute("ROLLBACK");
-      } catch (rollbackError) {
-        console.error("Error al hacer rollback:", rollbackError);
-      }
+      await conexion.execute("ROLLBACK");
       return {
         success: false,
         message: error instanceof Error ? error.message : "Error interno del servidor",
@@ -232,11 +189,6 @@ export class Usuario {
   // 📌 Buscar usuario por email (para login)
   public async buscarPorEmail(email: string): Promise<UsuarioLoginData | null> {
     try {
-      // Normalizar email para búsqueda case-insensitive
-      const normalizedEmail = email.trim().toLowerCase();
-      console.log(`[UsuarioModel] Buscando usuario con email normalizado: "${normalizedEmail}"`);
-      
-      const conexion = await obtenerConexion();
       const result = await conexion.query(`
         SELECT 
           id_usuario, nombre, email, password, telefono, direccion, id_ciudad, rol,
@@ -249,27 +201,16 @@ export class Usuario {
           codigo_sms_expiracion,
           codigo_verificacion_sms
         FROM usuarios 
-        WHERE LOWER(TRIM(email)) = ?
+        WHERE email = ? 
         LIMIT 1
-      `, [normalizedEmail]);
-      
-      console.log(`[UsuarioModel] Resultado de búsqueda: ${result.length} usuario(s) encontrado(s)`);
+      `, [email]);
       if (result.length > 0) {
         const user = result[0] as any;
-        console.log(`[UsuarioModel] Usuario encontrado: ID=${user.id_usuario}, Email=${user.email}`);
-        console.log(`[UsuarioModel] Password en BD (tipo): ${typeof user.password}`);
-        console.log(`[UsuarioModel] Password en BD (longitud): ${user.password?.length || 'NULL'}`);
-        console.log(`[UsuarioModel] Password en BD (primeros 50 chars): ${user.password?.substring(0, 50) || 'NULL'}...`);
-        console.log(`[UsuarioModel] Password en BD (últimos 20 chars): ...${user.password?.substring(Math.max(0, (user.password?.length || 0) - 20)) || 'NULL'}`);
-        
-        // Asegurar que el password sea un string
-        const passwordString = user.password ? String(user.password) : null;
-        
         return {
           id_usuario: user.id_usuario,
           nombre: user.nombre,
           email: user.email,
-          password: passwordString,
+          password: user.password,
           telefono: user.telefono,
           direccion: user.direccion,
           id_ciudad: user.id_ciudad,
@@ -294,7 +235,6 @@ export class Usuario {
   // 📌 Filtrar usuarios por ciudad
   public async FiltrarPorCiudad(id_ciudad: number): Promise<UsuarioData[]> {
     try {
-      const conexion = await obtenerConexion();
       const result = await conexion.query("SELECT * FROM usuarios WHERE id_ciudad = ?", [id_ciudad]);
       return result as UsuarioData[];
     } catch (error) {
@@ -306,7 +246,6 @@ export class Usuario {
   // 📌 Filtrar usuarios por departamento
   public async FiltrarPorDepartamento(id_departamento: number): Promise<UsuarioData[]> {
     try {
-      const conexion = await obtenerConexion();
       const result = await conexion.query(
         `SELECT u.* 
          FROM usuarios u
@@ -324,7 +263,6 @@ export class Usuario {
   // 📌 Filtrar usuarios por región
   public async FiltrarPorRegion(id_region: number): Promise<UsuarioData[]> {
     try {
-      const conexion = await obtenerConexion();
       const result = await conexion.query(
         `SELECT u.* 
          FROM usuarios u

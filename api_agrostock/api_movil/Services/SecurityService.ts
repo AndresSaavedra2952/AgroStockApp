@@ -441,11 +441,43 @@ export class SecurityService {
 
   /**
    * Valida formato de teléfono colombiano
+   * Acepta números de 10 dígitos (pueden empezar con 0)
+   * También acepta formato con código de país: +57 o 57
    */
   validatePhone(phone: string): boolean {
-    // Formato colombiano: +57, 57, o sin código de país
-    const phoneRegex = /^(\+?57)?[1-9]\d{9}$/;
-    return phoneRegex.test(phone.replace(/\s/g, ''));
+    if (!phone || typeof phone !== 'string') {
+      return false;
+    }
+    
+    // Limpiar espacios, guiones y paréntesis
+    const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+    
+    // Si está vacío después de limpiar, es inválido
+    if (cleaned.length === 0) {
+      return false;
+    }
+    
+    // Formato colombiano: 
+    // - 10 dígitos (pueden empezar con 0, como 3001234567)
+    // - O con código de país: +57 o 57 seguido de 10 dígitos
+    // - O con código de país: +57 o 57 seguido de número que empiece con 3 y tenga 9 dígitos más
+    
+    // Caso 1: Número de 10 dígitos (puede empezar con 0)
+    if (/^\d{10}$/.test(cleaned)) {
+      return true;
+    }
+    
+    // Caso 2: Con código de país +57 o 57 seguido de 10 dígitos
+    if (/^(\+?57)\d{10}$/.test(cleaned)) {
+      return true;
+    }
+    
+    // Caso 3: Con código de país +57 o 57 seguido de número que empiece con 3 y tenga 9 dígitos más (formato móvil)
+    if (/^(\+?57)3\d{9}$/.test(cleaned)) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**

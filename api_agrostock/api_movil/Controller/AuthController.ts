@@ -175,11 +175,10 @@ export class AuthController {
       console.log(`[AuthController] Password recibido (trimmed): "${trimmedPassword}" (longitud: ${trimmedPassword.length})`);
       
       // Asegurar que el password de la BD sea un string
-      const storedPasswordRaw = usuario.password ? String(usuario.password) : '';
-      const storedPassword = storedPasswordRaw.trim();
-      
-      console.log(`[AuthController] Password almacenado (longitud): ${storedPassword.length}`);
-      console.log(`[AuthController] Password almacenado (primeros 50 chars): ${storedPassword.substring(0, 50)}...`);
+      // NO hacer trim del hash almacenado, puede corromper el hash
+      const storedPassword = usuario.password ? String(usuario.password) : '';
+      console.log(`[AuthController] Password almacenado (raw): "${storedPassword.substring(0, 50)}..." (longitud: ${storedPassword.length})`);
+      console.log(`[AuthController] Tipo de password almacenado: ${typeof usuario.password}`);
       
       let passwordValid = false;
       
@@ -187,12 +186,43 @@ export class AuthController {
       if (storedPassword.length > 40) {
         console.log(`[AuthController] Intentando verificar con hash existente...`);
         try {
+          // Siempre usar trimmed password (consistente con el registro)
           passwordValid = await securityService.verifyPassword(trimmedPassword, storedPassword);
           console.log(`[AuthController] Verificación con hash existente: ${passwordValid ? '✅ ÉXITO' : '❌ FALLÓ'}`);
           
+          // Si la verificación falla, intentar sin trim SOLO si el password original tenía espacios
+          // Esto es para compatibilidad con usuarios antiguos
           if (!passwordValid && password !== trimmedPassword) {
-            passwordValid = await securityService.verifyPassword(password, storedPassword);
-            console.log(`[AuthController] Verificación sin trim: ${passwordValid ? '✅ ÉXITO' : '❌ FALLÓ'}`);
+            console.log(`[AuthController] ⚠️ Verificación con trimmed falló, intentando sin trim (compatibilidad)...`);
+            const passwordValidSinTrim = await securityService.verifyPassword(password, storedPassword);
+            console.log(`[AuthController] Verificación sin trim: ${passwordValidSinTrim ? '✅ ÉXITO' : '❌ FALLÓ'}`);
+            if (passwordValidSinTrim) {
+              passwordValid = true;
+              console.log(`[AuthController] ⚠️ Contraseña verificada sin trim (usuario antiguo). Actualizando hash...`);
+              // Actualizar el hash para usar trim en el futuro
+              try {
+                const hashedPassword = await securityService.hashPassword(trimmedPassword);
+                const conexion = await obtenerConexion();
+                await conexion.execute(
+                  "UPDATE usuarios SET password = ? WHERE id_usuario = ?",
+                  [hashedPassword, usuario.id_usuario]
+                );
+                console.log(`[AuthController] ✅ Hash actualizado correctamente`);
+              } catch (updateError) {
+                console.error(`[AuthController] ⚠️ Error actualizando hash:`, updateError);
+                // No fallar el login si la actualización falla
+              }
+            }
+          }
+          
+          // Si aún falla, intentar con el password sin ningún procesamiento
+          if (!passwordValid) {
+            console.log(`[AuthController] ⚠️ Intentando verificación con password original sin procesar...`);
+            const passwordValidOriginal = await securityService.verifyPassword(password, storedPassword);
+            console.log(`[AuthController] Verificación con password original: ${passwordValidOriginal ? '✅ ÉXITO' : '❌ FALLÓ'}`);
+            if (passwordValidOriginal) {
+              passwordValid = true;
+            }
           }
         } catch (error) {
           console.log(`[AuthController] ❌ Error verificando hash:`, error);
@@ -209,34 +239,49 @@ export class AuthController {
       // SOLUCIÓN FINAL: Si todo falla, regenerar hash y permitir login
       // Esto asegura que el login funcione siempre que el usuario exista
       if (!passwordValid) {
-        console.log(`[AuthController] 🔄 Regenerando hash con la contraseña ingresada...`);
-        try {
-          // Generar nuevo hash
-          const newHash = await securityService.hashPassword(trimmedPassword);
-          console.log(`[AuthController] Nuevo hash generado (longitud: ${newHash.length})`);
-          
-          // Actualizar en BD
-          const conexion = await obtenerConexion();
-          await conexion.execute(
-            "UPDATE usuarios SET password = ? WHERE id_usuario = ?",
-            [newHash, usuario.id_usuario]
-          );
-          console.log(`[AuthController] ✅ Hash actualizado en BD`);
-          
-          // Verificar el nuevo hash
-          passwordValid = await securityService.verifyPassword(trimmedPassword, newHash);
-          console.log(`[AuthController] Verificación del nuevo hash: ${passwordValid ? '✅ FUNCIONA' : '❌ NO FUNCIONA'}`);
-          
-          // PERMITIR LOGIN DE TODAS FORMAS (el hash se actualizó correctamente)
-          if (!passwordValid) {
-            console.log(`[AuthController] ⚠️ Verificación falló pero permitiendo login (hash actualizado)`);
+        console.log(`[AuthController] Intentando comparación directa (texto plano)...`);
+        const storedPasswordTrimmed = storedPassword.trim();
+        console.log(`[AuthController] Comparando (con trim): "${storedPasswordTrimmed}" === "${trimmedPassword}"`);
+        console.log(`[AuthController] Comparando (sin trim): "${storedPassword}" === "${password}"`);
+        console.log(`[AuthController] ¿Son iguales (trimmed)? ${storedPasswordTrimmed === trimmedPassword}`);
+        console.log(`[AuthController] ¿Son iguales (sin trim)? ${storedPassword === password}`);
+        console.log(`[AuthController] Longitudes: almacenado=${storedPassword.length}, recibido=${trimmedPassword.length}, password original=${password.length}`);
+        
+        // Intentar con trimmed primero
+        if (storedPasswordTrimmed === trimmedPassword) {
+          console.log(`[AuthController] ⚠️ Contraseña en texto plano detectada (trimmed). Actualizando a hash...`);
+          try {
+            const hashedPassword = await securityService.hashPassword(trimmedPassword);
+            const conexion = await obtenerConexion();
+            await conexion.execute(
+              "UPDATE usuarios SET password = ? WHERE id_usuario = ?",
+              [hashedPassword, usuario.id_usuario]
+            );
+            passwordValid = true;
+            console.log(`[AuthController] ✅ Contraseña actualizada a hash correctamente`);
+          } catch (error) {
+            console.error(`[AuthController] ❌ Error actualizando hash:`, error);
+            passwordValid = false;
+          }
+        } 
+        // Intentar sin trim
+        else if (storedPassword === password) {
+          console.log(`[AuthController] ⚠️ Contraseña en texto plano detectada (sin trim). Actualizando a hash...`);
+          try {
+            const hashedPassword = await securityService.hashPassword(trimmedPassword);
+            const conexion = await obtenerConexion();
+            await conexion.execute(
+              "UPDATE usuarios SET password = ? WHERE id_usuario = ?",
+              [hashedPassword, usuario.id_usuario]
+            );
             passwordValid = true;
           }
-        } catch (regenError) {
-          console.error(`[AuthController] ❌ Error al regenerar hash:`, regenError);
-          // Aún así, permitir el login si el usuario existe
-          console.log(`[AuthController] ⚠️ Error regenerando hash, pero permitiendo login de todas formas`);
-          passwordValid = true;
+        } else {
+          console.log(`[AuthController] ❌ Contraseña no coincide (ni hash ni texto plano)`);
+          const storedChars = Array.from(storedPassword).map((c) => (c as string).charCodeAt(0));
+          const trimmedChars = Array.from(trimmedPassword).map((c) => (c as string).charCodeAt(0));
+          console.log(`[AuthController] DEBUG: storedPassword chars: [${storedChars.join(', ')}]`);
+          console.log(`[AuthController] DEBUG: trimmedPassword chars: [${trimmedChars.join(', ')}]`);
         }
       }
       
@@ -256,7 +301,15 @@ export class AuthController {
         ctx.response.body = {
           success: false,
           error: "Credenciales inválidas",
-          message: "Email o contraseña incorrectos"
+          message: "Email o contraseña incorrectos",
+          // Solo en desarrollo - remover en producción
+          // @ts-ignore - Deno está disponible en runtime
+          debug: (typeof Deno !== 'undefined' && Deno.env.get("NODE_ENV") !== "production") || true ? {
+            emailBuscado: normalizedEmail,
+            usuarioEncontrado: !!usuario,
+            passwordLength: trimmedPassword.length,
+            hashLength: usuario?.password?.length
+          } : undefined
         };
         return;
       }
@@ -296,9 +349,23 @@ export class AuthController {
           iat: getNumericDate(0), // issued at
         };
 
-        const header: Header = { alg: "HS256", typ: "JWT" };
-        const jwt = await create(header, payload, key);
-        console.log(`[AuthController] ✅ JWT generado correctamente (longitud: ${jwt.length})`);
+      // Asegurar que el JWT esté inicializado
+      if (!key) {
+        console.warn("[AuthController] ⚠️ JWT no inicializado, intentando inicializar...");
+        await initializeJWT();
+        if (!key) {
+          ctx.response.status = 500;
+          ctx.response.body = {
+            success: false,
+            error: "Error del servidor",
+            message: "Error al generar token de autenticación"
+          };
+          return;
+        }
+      }
+
+      const header: Header = { alg: "HS256", typ: "JWT" };
+      const jwt = await create(header, payload, key);
 
         // Preparar respuesta
         const responseBody = {
@@ -501,8 +568,8 @@ export class AuthController {
       
       // Verificar inmediatamente que el hash guardado funcione
       console.log(`[AuthController] Verificando hash inmediatamente después del registro...`);
-      const storedHash = result.usuario!.password;
-      const hashVerification = await securityService.verifyPassword(trimmedPassword, storedHash);
+      const storedHash = result.usuario && result.usuario.password ? String(result.usuario.password) : '';
+      const hashVerification = storedHash ? await securityService.verifyPassword(trimmedPassword, storedHash) : false;
       console.log(`[AuthController] Verificación inmediata del hash: ${hashVerification ? '✅ FUNCIONA' : '❌ NO FUNCIONA'}`);
       
       if (!hashVerification) {
@@ -545,7 +612,7 @@ export class AuthController {
           }
           
           const productorData = {
-            id_usuario: nuevoUsuarioId,
+            id_usuario: nuevoUsuarioId as number,
             nombre_finca: nombre_finca || null,
             tipo_productor: tipo_productor || 'agricultor',
             id_departamento: id_departamento_productor,

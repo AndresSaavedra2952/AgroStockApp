@@ -195,37 +195,24 @@ export const AuthProvider = ({ children }) => {
           };
         }
       } else {
-        const errorMessage = response.message || response.error || 'Error al iniciar sesión';
-        console.error('❌ Login falló:', errorMessage);
-        return { success: false, message: errorMessage };
+        return { 
+          success: false, 
+          message: response.message || response.error || 'Error al iniciar sesión' 
+        };
       }
     } catch (error) {
-      console.error('❌ Error en login (catch):', error);
-      console.error('❌ Error details:', {
-        message: error.message,
-        error: error.error,
-        status: error.status,
-        data: error.data
-      });
-      
-      // Extraer el mensaje de error de manera segura
-      let errorMessage = 'Error al iniciar sesión. Verifica tus credenciales.';
-      
-      if (error && typeof error === 'object') {
-        if (error.message) {
-          errorMessage = error.message;
-        } else if (error.error) {
-          errorMessage = error.error;
-        } else if (typeof error === 'string') {
-          errorMessage = error;
-        }
-      } else if (typeof error === 'string') {
-        errorMessage = error;
+      console.error('Error en login:', error);
+      // Manejar errores del backend
+      // El error puede ser un objeto con {success, error, message} o un string
+      if (typeof error === 'object' && error !== null) {
+        return {
+          success: false,
+          message: error.message || error.error || 'Error al iniciar sesión. Verifica tus credenciales.'
+        };
       }
-      
       return { 
         success: false, 
-        message: errorMessage
+        message: error || 'Error al iniciar sesión. Verifica tus credenciales.' 
       };
     }
   };
@@ -234,18 +221,33 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authService.register(userData);
       
-      if (response.success && response.usuario) {
+      if (response.success) {
         // El registro no inicia sesión automáticamente
         // El usuario debe iniciar sesión después
-        return { success: true, message: response.message };
+        return { 
+          success: true, 
+          message: response.message,
+          usuario: response.usuario || null
+        };
       } else {
-        return { success: false, message: response.message || 'Error al registrar usuario' };
+        return { 
+          success: false, 
+          message: response.message || response.error || 'Error al registrar usuario' 
+        };
       }
     } catch (error) {
       console.error('Error en register:', error);
+      // Manejar errores del backend
+      // El error puede ser un objeto con {success, error, message} o un string
+      if (typeof error === 'object' && error !== null) {
+        return {
+          success: false,
+          message: error.message || error.error || 'Error al registrar usuario'
+        };
+      }
       return { 
         success: false, 
-        message: error.message || 'Error al registrar usuario' 
+        message: error || 'Error al registrar usuario'
       };
     }
   };

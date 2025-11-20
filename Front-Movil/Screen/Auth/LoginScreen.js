@@ -47,15 +47,16 @@ export default function LoginScreen({ navigation }) {
         // El login fue exitoso, la navegación se manejará automáticamente
         // según el rol del usuario en AppNavegacion.js
         console.log('✅ Login exitoso, usuario:', result.usuario);
-        // No hacer nada más aquí, la navegación se manejará automáticamente
-        // por el cambio de estado en AuthContext
+        console.log('📋 Rol del usuario:', result.usuario?.rol);
+        // No mostrar alerta de éxito, la navegación cambiará automáticamente
+        // La navegación se actualizará cuando el estado 'user' cambie en AuthContext
       } else {
         const errorMessage = result.message || 'Error al iniciar sesión';
         console.error('❌ Login falló:', errorMessage);
         Alert.alert('Error', errorMessage);
       }
     } catch (error) {
-      console.error('❌ Error en handleLogin (catch):', error);
+      console.error('Error en login:', error);
       let errorMessage = 'Error al conectar con el servidor';
       
       if (error && typeof error === 'object') {
@@ -68,6 +69,8 @@ export default function LoginScreen({ navigation }) {
         }
       } else if (typeof error === 'string') {
         errorMessage = error;
+      } else if (error.error || error.message) {
+        errorMessage = error.message || error.error;
       }
       
       Alert.alert('Error', errorMessage);

@@ -3,12 +3,9 @@
     "name": "AgroStock",
     "slug": "agrostock",
     "version": "1.0.0",
-    "sdkVersion": "54.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -21,7 +18,6 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2e7d32"
       },
       "package": "com.agrostock.app",
@@ -34,14 +30,11 @@
         "ACCESS_COARSE_LOCATION"
       ]
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
+    "web": {},
     "plugins": [
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
           "color": "#2e7d32"
         }
       ],
@@ -53,7 +46,7 @@
       ]
     ],
     "extra": {
-      "apiUrl": "http://172.20.10.7:8000"
+      "apiUrl": "http://172.20.10.8:8000"
     }
   }
 }
