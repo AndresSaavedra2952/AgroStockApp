@@ -16,4 +16,7 @@ router.get("/mensajes", AuthMiddleware(['admin']), EstadisticasController.Obtene
 router.get("/estadisticas/usuario/:id_usuario", AuthMiddleware(['admin', 'consumidor', 'productor']), EstadisticasController.ObtenerEstadisticasUsuario);
 router.put("/estadisticas/usuario/:id_usuario", AuthMiddleware(['admin', 'consumidor', 'productor']), EstadisticasController.ActualizarEstadisticasUsuario);
 
+// 📌 Ruta para estadísticas de ventas del usuario autenticado (productores)
+router.get("/estadisticas/mis-ventas", AuthMiddleware(['productor', 'admin']), EstadisticasController.ObtenerMisVentas);
+
 export { router as EstadisticasRouter };

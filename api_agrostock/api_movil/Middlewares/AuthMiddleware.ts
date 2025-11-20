@@ -61,12 +61,29 @@ export function AuthMiddleware(rolesPermitidos: string[] = []) {
       }
 
       await next();
-    } catch (_e) {
+    } catch (e) {
+      // Log del error específico para debugging
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`[AuthMiddleware] ❌ Error verificando token:`, errorMessage);
+      console.error(`[AuthMiddleware] Token recibido (primeros 20 chars):`, token.substring(0, 20) + '...');
+      
+      // Determinar el tipo de error
+      let errorType = "INVALID_TOKEN";
+      let message = "Token inválido o expirado";
+      
+      if (errorMessage.includes("expired") || errorMessage.includes("exp")) {
+        errorType = "TOKEN_EXPIRED";
+        message = "El token ha expirado. Por favor, inicia sesión nuevamente.";
+      } else if (errorMessage.includes("invalid") || errorMessage.includes("signature")) {
+        errorType = "INVALID_TOKEN";
+        message = "Token inválido. Por favor, inicia sesión nuevamente.";
+      }
+      
       ctx.response.status = 401;
       ctx.response.body = { 
         success: false,
-        error: "INVALID_TOKEN",
-        message: "Token inválido o expirado" 
+        error: errorType,
+        message: message
       };
     }
   };

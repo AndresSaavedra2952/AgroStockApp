@@ -22,17 +22,27 @@ export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
 
   const handleLogin = async () => {
+    // Normalizar email pero NO hacer trim del password aquí
+    // El backend se encargará de hacer trim del password para consistencia
     const normalizedEmail = email.trim().toLowerCase();
-    const trimmedPassword = password.trim();
     
-    if (!normalizedEmail || !trimmedPassword) {
+    if (!normalizedEmail || !password) {
       Alert.alert('Error', 'Por favor completa todos los campos');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await login(normalizedEmail, trimmedPassword);
+      // Enviar password sin trim - el backend lo manejará
+      const result = await login(normalizedEmail, password);
+      
+      // Validar que result no sea null o undefined
+      if (!result) {
+        console.error('❌ Resultado del login es null o undefined');
+        Alert.alert('Error', 'Error al iniciar sesión. No se recibió respuesta del servidor.');
+        return;
+      }
+      
       if (result.success) {
         // El login fue exitoso, la navegación se manejará automáticamente
         // según el rol del usuario en AppNavegacion.js
@@ -41,20 +51,28 @@ export default function LoginScreen({ navigation }) {
         // No mostrar alerta de éxito, la navegación cambiará automáticamente
         // La navegación se actualizará cuando el estado 'user' cambie en AuthContext
       } else {
-        Alert.alert('Error', result.message || 'Error al iniciar sesión');
+        const errorMessage = result.message || 'Error al iniciar sesión';
+        console.error('❌ Login falló:', errorMessage);
+        Alert.alert('Error', errorMessage);
       }
     } catch (error) {
       console.error('Error en login:', error);
       let errorMessage = 'Error al conectar con el servidor';
-      if (error.request) {
-        errorMessage = 'No se pudo conectar al servidor. Verifica tu conexión.';
-      } else if (error.message) {
-        errorMessage = error.message;
+      
+      if (error && typeof error === 'object') {
+        if (error.message) {
+          errorMessage = error.message;
+        } else if (error.error) {
+          errorMessage = error.error;
+        } else if (error.request) {
+          errorMessage = 'No se pudo conectar al servidor. Verifica tu conexión.';
+        }
       } else if (typeof error === 'string') {
         errorMessage = error;
       } else if (error.error || error.message) {
         errorMessage = error.message || error.error;
       }
+      
       Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);

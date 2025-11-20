@@ -50,11 +50,11 @@ export const pedidosService = {
   },
 
   /**
-   * Confirmar pedido (productor)
+   * Actualizar estado del pedido (productor)
    */
-  async confirmarPedido(id) {
+  async actualizarEstadoPedido(id, pedidoData) {
     try {
-      const response = await api.put(`/pedidos/${id}/confirm`);
+      const response = await api.put(`/pedidos/${id}`, pedidoData);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -62,12 +62,42 @@ export const pedidosService = {
   },
 
   /**
-   * Marcar pedido como completado (productor)
+   * Confirmar pedido (productor) - DEPRECATED: usar actualizarEstadoPedido
+   */
+  async confirmarPedido(id) {
+    try {
+      // Obtener el pedido actual primero
+      const pedido = await this.getPedidoPorId(id);
+      if (pedido.success && pedido.data) {
+        const pedidoData = pedido.data;
+        // Actualizar solo el estado
+        return await this.actualizarEstadoPedido(id, {
+          ...pedidoData,
+          estado: 'confirmado',
+        });
+      }
+      throw new Error('No se pudo obtener el pedido');
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Marcar pedido como completado (productor) - DEPRECATED: usar actualizarEstadoPedido
    */
   async completarPedido(id) {
     try {
-      const response = await api.put(`/pedidos/${id}/complete`);
-      return response.data;
+      // Obtener el pedido actual primero
+      const pedido = await this.getPedidoPorId(id);
+      if (pedido.success && pedido.data) {
+        const pedidoData = pedido.data;
+        // Actualizar solo el estado
+        return await this.actualizarEstadoPedido(id, {
+          ...pedidoData,
+          estado: 'entregado',
+        });
+      }
+      throw new Error('No se pudo obtener el pedido');
     } catch (error) {
       throw error.response?.data || error.message;
     }

@@ -41,7 +41,20 @@ export class SecurityService {
       combined.set(new Uint8Array(derivedBits), salt.length);
 
       // Codificar en base64url
-      return encodeBase64Url(combined.buffer);
+      const encodedHash = encodeBase64Url(combined.buffer);
+      
+      // Asegurar que el resultado sea un string válido
+      const hashString = typeof encodedHash === 'string' ? encodedHash : String(encodedHash);
+      
+      // Verificar que el hash sea válido antes de retornarlo
+      if (!/^[A-Za-z0-9_-]+$/.test(hashString)) {
+        console.error(`[SecurityService] ❌ ERROR: Hash generado contiene caracteres inválidos!`);
+        console.error(`[SecurityService] Hash: "${hashString.substring(0, 100)}..."`);
+        throw new Error("Hash generado no es válido");
+      }
+      
+      console.log(`[SecurityService] ✅ Hash generado correctamente (${hashString.length} chars)`);
+      return hashString;
     } catch (error) {
       console.error("Error al hashear contraseña:", error);
       throw new Error("Error al procesar contraseña");
@@ -63,8 +76,12 @@ export class SecurityService {
         return false;
       }
       
-      // Asegurar que hash sea un string
-      const hashString = String(hash).trim();
+      // Asegurar que hash sea un string y NO hacer trim aquí porque base64url puede tener padding
+      // Solo eliminar espacios al inicio/final que no deberían estar
+      let hashString = String(hash);
+      
+      // Eliminar espacios al inicio y final, pero preservar el contenido del hash
+      hashString = hashString.trim();
       
       // Si el hash no parece ser un hash base64url válido (muy corto o formato incorrecto)
       // puede ser texto plano, retornar false para que el AuthController lo maneje
@@ -79,14 +96,87 @@ export class SecurityService {
         console.log(`[SecurityService] ⚠️ Hash muy corto (${hashString.length} chars), esperado ~64 chars para PBKDF2`);
       }
       
+      // Verificar que el hash solo contenga caracteres válidos de base64url
+      const base64urlRegex = /^[A-Za-z0-9_-]+$/;
+      if (!base64urlRegex.test(hashString)) {
+        console.log(`[SecurityService] ❌ Hash contiene caracteres inválidos para base64url`);
+        console.log(`[SecurityService] Hash: "${hashString.substring(0, 100)}..."`);
+        return false;
+      }
+      
       // Decodificar el hash
       let combined: Uint8Array;
       try {
-        combined = decodeBase64Url(hashString);
-        console.log(`[SecurityService] Hash decodificado correctamente (${combined.length} bytes)`);
+        // Asegurar que hashString sea realmente un string
+        const hashToDecode = typeof hashString === 'string' ? hashString : String(hashString);
+        
+        // Verificar que no esté vacío
+        if (!hashToDecode || hashToDecode.trim() === '') {
+          console.log('[SecurityService] ❌ Hash vacío después de validación');
+          return false;
+        }
+        
+        // Intentar decodificar base64url
+        let decodeSuccess = false;
+        try {
+          combined = decodeBase64Url(hashToDecode);
+          console.log(`[SecurityService] ✅ Hash decodificado con base64url (${combined.length} bytes)`);
+          decodeSuccess = true;
+        } catch (decodeError) {
+          console.log('[SecurityService] ⚠️ Error decodificando base64url:', decodeError instanceof Error ? decodeError.message : String(decodeError));
+          console.log('[SecurityService] Intentando base64 estándar como fallback...');
+          
+          // Si falla base64url, intentar base64 estándar como fallback
+          try {
+            // Convertir base64url a base64 estándar si es necesario
+            let base64String = hashToDecode.replace(/-/g, '+').replace(/_/g, '/');
+            // Agregar padding si es necesario
+            while (base64String.length % 4) {
+              base64String += '=';
+            }
+            // Decodificar base64 estándar
+            const binaryString = atob(base64String);
+            combined = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              combined[i] = binaryString.charCodeAt(i);
+            }
+            console.log(`[SecurityService] ✅ Hash decodificado con base64 estándar (${combined.length} bytes)`);
+            decodeSuccess = true;
+          } catch (base64Error) {
+            console.log('[SecurityService] ❌ Error decodificando hash (tanto base64url como base64)');
+            console.log(`[SecurityService] Hash completo: "${hashString}"`);
+            console.log(`[SecurityService] Hash (primeros 100 chars): "${hashString.substring(0, 100)}..."`);
+            console.log(`[SecurityService] Longitud del hash: ${hashString.length}`);
+            if (decodeError instanceof Error) {
+              console.log(`[SecurityService] Error base64url: ${decodeError.message}`);
+            }
+            if (base64Error instanceof Error) {
+              console.log(`[SecurityService] Error base64: ${base64Error.message}`);
+            }
+            return false;
+          }
+        }
+        
+        if (!decodeSuccess || !combined) {
+          console.log('[SecurityService] ❌ No se pudo decodificar el hash');
+          return false;
+        }
+        
+        // Verificar que el resultado sea un Uint8Array válido
+        if (!(combined instanceof Uint8Array)) {
+          console.log('[SecurityService] ❌ Hash decodificado no es un Uint8Array válido');
+          return false;
+        }
       } catch (error) {
-        console.log('[SecurityService] ❌ Error decodificando hash, probablemente formato incorrecto:', error);
-        console.log(`[SecurityService] Hash que falló: "${hashString.substring(0, 100)}..."`);
+        console.log('[SecurityService] ❌ Error general decodificando hash:', error);
+        console.log(`[SecurityService] Hash que falló (completo): "${hashString}"`);
+        console.log(`[SecurityService] Hash que falló (primeros 100 chars): "${hashString.substring(0, 100)}..."`);
+        console.log(`[SecurityService] Longitud del hash: ${hashString.length}`);
+        console.log(`[SecurityService] Tipo del hash: ${typeof hashString}`);
+        if (error instanceof Error) {
+          console.log(`[SecurityService] Error message: ${error.message}`);
+          console.log(`[SecurityService] Error stack: ${error.stack}`);
+        }
         return false;
       }
       
@@ -130,14 +220,17 @@ export class SecurityService {
       // Comparación segura para evitar timing attacks
       if (derivedHash.length !== storedHash.length) {
         console.log(`[SecurityService] ❌ Longitudes diferentes: derivado=${derivedHash.length}, almacenado=${storedHash.length}`);
+        console.log(`[SecurityService] DEBUG: Salt length=${salt.length}, Combined length=${combined.length}`);
         return false;
       }
 
       let isEqual = true;
       let firstDiffIndex = -1;
+      let diffCount = 0;
       for (let i = 0; i < derivedHash.length; i++) {
         if (derivedHash[i] !== storedHash[i]) {
           isEqual = false;
+          diffCount++;
           if (firstDiffIndex === -1) {
             firstDiffIndex = i;
           }
@@ -147,8 +240,17 @@ export class SecurityService {
       if (isEqual) {
         console.log(`[SecurityService] ✅ Hashes coinciden perfectamente`);
       } else {
-        console.log(`[SecurityService] ❌ Hashes NO coinciden (primera diferencia en byte ${firstDiffIndex})`);
+        console.log(`[SecurityService] ❌ Hashes NO coinciden`);
+        console.log(`[SecurityService]   Primera diferencia en byte ${firstDiffIndex}`);
+        console.log(`[SecurityService]   Total de bytes diferentes: ${diffCount} de ${derivedHash.length}`);
         console.log(`[SecurityService]   Byte ${firstDiffIndex}: derivado=${derivedHash[firstDiffIndex]}, almacenado=${storedHash[firstDiffIndex]}`);
+        
+        // Mostrar los primeros bytes para debug
+        const previewLength = Math.min(10, derivedHash.length);
+        const derivedPreview = Array.from(derivedHash.slice(0, previewLength)).join(',');
+        const storedPreview = Array.from(storedHash.slice(0, previewLength)).join(',');
+        console.log(`[SecurityService]   Primeros ${previewLength} bytes derivados: [${derivedPreview}]`);
+        console.log(`[SecurityService]   Primeros ${previewLength} bytes almacenados: [${storedPreview}]`);
       }
 
       return isEqual;

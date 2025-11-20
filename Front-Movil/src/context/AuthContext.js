@@ -19,11 +19,51 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
 
   useEffect(() => {
-    // Cargar datos de sesión al iniciar
-    cargarSesion();
+    let isMounted = true;
+    let timeoutId = null;
     
-    // Configurar notificaciones
-    configurarNotificaciones();
+    // Timeout de seguridad: asegurar que loading se establezca en false después de 5 segundos máximo
+    timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn('⚠️ Timeout de carga de sesión, forzando loading a false');
+        setLoading(false);
+      }
+    }, 5000);
+    
+    // Cargar datos de sesión al iniciar
+    const init = async () => {
+      try {
+        await cargarSesion();
+        
+        // Limpiar timeout si la carga fue exitosa
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        
+        // Configurar notificaciones solo si el componente sigue montado
+        if (isMounted) {
+          configurarNotificaciones();
+        }
+      } catch (error) {
+        console.error('Error en inicialización:', error);
+        if (isMounted) {
+          setLoading(false);
+        }
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+    };
+    
+    init();
+    
+    // Cleanup
+    return () => {
+      isMounted = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, []);
 
   const cargarSesion = async () => {
@@ -32,62 +72,128 @@ export const AuthProvider = ({ children }) => {
       const storedUser = await AsyncStorage.getItem('user');
 
       if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-        
-        // Verificar que el token sigue siendo válido
         try {
-          await authService.verifyToken();
-        } catch (error) {
-          // Token inválido, limpiar sesión
-          await logout();
+          const parsedUser = JSON.parse(storedUser);
+          
+          // Verificar que el token sigue siendo válido ANTES de establecer el estado
+          // Esto evita mostrar contenido protegido con un token inválido
+          try {
+            const verifyResponse = await authService.verifyToken();
+            if (verifyResponse && verifyResponse.success) {
+              // Token válido, establecer usuario y token
+              setToken(storedToken);
+              setUser(parsedUser);
+            } else {
+              // Token inválido según la respuesta
+              console.warn('⚠️ Token inválido según verificación, limpiando sesión');
+              await AsyncStorage.removeItem('token');
+              await AsyncStorage.removeItem('user');
+              setToken(null);
+              setUser(null);
+            }
+          } catch (verifyError) {
+            // Error al verificar token (probablemente expirado o inválido)
+            console.warn('⚠️ Error al verificar token, limpiando sesión:', verifyError?.error || verifyError?.message);
+            await AsyncStorage.removeItem('token');
+            await AsyncStorage.removeItem('user');
+            setToken(null);
+            setUser(null);
+          }
+        } catch (parseError) {
+          console.error('Error al parsear usuario almacenado:', parseError);
+          // Limpiar datos corruptos
+          await AsyncStorage.removeItem('token');
+          await AsyncStorage.removeItem('user');
         }
+      } else {
+        // No hay token o usuario almacenado
+        setToken(null);
+        setUser(null);
       }
     } catch (error) {
       console.error('Error al cargar sesión:', error);
+      // Limpiar en caso de error
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('user');
+      setToken(null);
+      setUser(null);
     } finally {
+      // Siempre establecer loading en false después de cargar
       setLoading(false);
     }
   };
 
   const configurarNotificaciones = async () => {
     try {
+      // No bloquear la inicialización si las notificaciones fallan
       const tienePermiso = await notificationService.solicitarPermisos();
       if (tienePermiso) {
-        await notificationService.registrarToken();
+        // Registrar token de forma asíncrona sin bloquear
+        notificationService.registrarToken().catch((error) => {
+          console.warn('No se pudo registrar token FCM (no crítico):', error);
+        });
       }
     } catch (error) {
-      console.error('Error al configurar notificaciones:', error);
+      // No es crítico si las notificaciones fallan
+      console.warn('Error al configurar notificaciones (no crítico):', error);
     }
   };
 
   const login = async (email, password) => {
     try {
+      // El AuthService ya normaliza el email, solo pasar password sin modificar
       const response = await authService.login(email, password);
+      
+      // Validar que la respuesta tenga el formato esperado
+      if (!response) {
+        console.error('❌ Respuesta vacía del servidor');
+        return { 
+          success: false, 
+          message: 'Error al iniciar sesión. Respuesta inválida del servidor.' 
+        };
+      }
       
       if (response.success && response.token) {
         const usuario = response.usuario;
+        
+        // Validar que el usuario tenga los datos necesarios
+        if (!usuario || !usuario.id_usuario) {
+          console.error('❌ Usuario inválido en la respuesta:', usuario);
+          return { 
+            success: false, 
+            message: 'Error al iniciar sesión. Datos de usuario inválidos.' 
+          };
+        }
         
         console.log('✅ Login exitoso, usuario:', usuario);
         console.log('📋 Rol del usuario:', usuario.rol);
         
         // Guardar token y usuario
-        await AsyncStorage.setItem('token', response.token);
-        await AsyncStorage.setItem('user', JSON.stringify(usuario));
-        
-        setToken(response.token);
-        setUser(usuario);
-        
-        // Registrar token FCM si está disponible
         try {
-          await notificationService.registrarToken();
-        } catch (error) {
-          console.warn('No se pudo registrar token FCM:', error);
+          await AsyncStorage.setItem('token', response.token);
+          await AsyncStorage.setItem('user', JSON.stringify(usuario));
+          
+          setToken(response.token);
+          setUser(usuario);
+          
+          // Registrar token FCM si está disponible
+          try {
+            await notificationService.registrarToken();
+          } catch (error) {
+            console.warn('No se pudo registrar token FCM:', error);
+            // No fallar el login si FCM falla
+          }
+          
+          // La navegación se manejará automáticamente en AppNavegacion.js
+          // según el rol del usuario (consumidor o productor)
+          return { success: true, usuario };
+        } catch (storageError) {
+          console.error('❌ Error al guardar datos en AsyncStorage:', storageError);
+          return { 
+            success: false, 
+            message: 'Error al guardar sesión. Intenta nuevamente.' 
+          };
         }
-        
-        // La navegación se manejará automáticamente en AppNavegacion.js
-        // según el rol del usuario (consumidor o productor)
-        return { success: true, usuario };
       } else {
         return { 
           success: false, 

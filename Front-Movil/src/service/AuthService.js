@@ -7,22 +7,29 @@ export const authService = {
   async login(email, password) {
     try {
       // Normalizar email: trim y lowercase
+      // NO hacer trim del password aquí - el backend lo manejará para consistencia
       const normalizedEmail = email.trim().toLowerCase();
-      const trimmedPassword = password.trim();
       
       // Log en desarrollo para debug
       if (__DEV__) {
         console.log('🔐 Intentando login con:', {
           emailOriginal: email,
           emailNormalizado: normalizedEmail,
-          passwordLength: trimmedPassword.length,
+          passwordLength: password.length,
         });
       }
       
       const response = await api.post('/auth/login', {
         email: normalizedEmail,
-        password: trimmedPassword,
+        password: password, // Enviar password sin trim - backend lo manejará
       });
+      
+      // Validar que la respuesta tenga el formato esperado
+      if (!response || !response.data) {
+        console.error('❌ Respuesta inválida del servidor:', response);
+        throw new Error('Respuesta inválida del servidor');
+      }
+      
       return response.data;
     } catch (error) {
       // Si hay respuesta del servidor, lanzar el objeto completo del error

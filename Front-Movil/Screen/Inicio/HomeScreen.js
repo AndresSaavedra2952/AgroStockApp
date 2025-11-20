@@ -34,27 +34,39 @@ export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
   const [categorias, setCategorias] = useState([]);
   const [productosDestacados, setProductosDestacados] = useState([]);
+  const [rateLimited, setRateLimited] = useState(false);
   
-  // Si el usuario está autenticado, redirigir a su pantalla principal
-  React.useEffect(() => {
-    if (user) {
-      if (user.rol === 'consumidor') {
-        navigation.replace('ConsumidorMain');
-      } else if (user.rol === 'productor') {
-        navigation.replace('ProductorMain');
-      }
-    }
-  }, [user, navigation]);
+  // NO redirigir aquí - la navegación se maneja en AppNavegacion.js
+  // Si el usuario está autenticado, AppNavegacion.js ya lo redirige automáticamente
 
-  const { data: productosData, loading, refresh } = useAutoRefresh(
+  // Solo hacer peticiones si NO hay rate limiting y el usuario NO está autenticado
+  // (porque si está autenticado, no debería estar en esta pantalla)
+  const shouldFetch = !user && !rateLimited;
+  
+  const { data: productosData, loading, refresh, error } = useAutoRefresh(
     () => productosService.getProductos({ limite: 6, orden: 'precio_asc' }),
     60000,
-    true
+    shouldFetch
   );
 
+  // Detectar errores 429 y deshabilitar auto-refresh
+  React.useEffect(() => {
+    if (error && (error.status === 429 || error.error === 'Demasiadas solicitudes')) {
+      console.warn('⚠️ Rate limit detectado, deshabilitando auto-refresh');
+      setRateLimited(true);
+      // Re-habilitar después de 10 minutos
+      setTimeout(() => {
+        setRateLimited(false);
+      }, 10 * 60 * 1000);
+    }
+  }, [error]);
+
   useEffect(() => {
-    cargarCategorias();
-  }, []);
+    // Solo cargar categorías si no hay rate limiting y el usuario no está autenticado
+    if (!user && !rateLimited) {
+      cargarCategorias();
+    }
+  }, [user, rateLimited]);
 
   useEffect(() => {
     if (productosData?.data) {
