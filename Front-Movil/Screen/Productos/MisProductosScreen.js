@@ -26,7 +26,7 @@ export default function MisProductosScreen({ navigation }) {
   const [productosFiltrados, setProductosFiltrados] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('todos'); // todos, activos, inactivos, stock-bajo, agotados
+  const [filtroEstado, setFiltroEstado] = useState('todos'); // todos, disponibles, no-disponibles, stock-bajo, agotados
 
   useEffect(() => {
     cargarProductos();
@@ -41,7 +41,16 @@ export default function MisProductosScreen({ navigation }) {
     try {
       const response = await productosService.getProductosPorUsuario(user?.id);
       if (response.success) {
-        setProductos(response.data || []);
+        const productosConImagenes = (response.data || []).map(producto => {
+          // Log para debugging
+          console.log(`[MisProductosScreen] Producto: ${producto.nombre}`, {
+            imagen_principal: producto.imagen_principal,
+            imagenUrl: producto.imagenUrl,
+            tieneImagen: !!(producto.imagen_principal || producto.imagenUrl)
+          });
+          return producto;
+        });
+        setProductos(productosConImagenes);
       }
     } catch (error) {
       console.error('Error al cargar productos:', error);
@@ -117,7 +126,7 @@ export default function MisProductosScreen({ navigation }) {
 
   const getEstadoBadge = (producto) => {
     if (!producto.disponible) {
-      return { color: '#d32f2f', text: 'Inactivo', icon: 'close-circle' };
+      return { color: '#d32f2f', text: 'No disponible', icon: 'close-circle' };
     }
     if (producto.stock === 0 || producto.stock === null) {
       return { color: '#f57c00', text: 'Agotado', icon: 'warning' };
@@ -125,20 +134,42 @@ export default function MisProductosScreen({ navigation }) {
     if (producto.stock_minimo && producto.stock <= producto.stock_minimo) {
       return { color: '#fbc02d', text: 'Stock Bajo', icon: 'alert-circle' };
     }
-    return { color: '#2e7d32', text: 'Activo', icon: 'checkmark-circle' };
+    return { color: '#2e7d32', text: 'Disponible', icon: 'checkmark-circle' };
   };
 
   const renderProducto = ({ item }) => {
     const estado = getEstadoBadge(item);
+    
+    // Construir URL de imagen: usar imagenUrl si está disponible, sino construir desde imagen_principal
+    let imagenUrl = null;
+    if (item.imagenUrl) {
+      imagenUrl = item.imagenUrl;
+    } else if (item.imagen_principal) {
+      // Si solo tenemos la ruta relativa, construir la URL completa
+      const API_BASE_URL = require('../../src/service/conexion').API_BASE_URL;
+      // Normalizar la ruta (cambiar \ por /)
+      const rutaNormalizada = item.imagen_principal.replace(/\\/g, '/');
+      // Asegurarse de que no empiece con /
+      const rutaLimpia = rutaNormalizada.startsWith('/') ? rutaNormalizada.substring(1) : rutaNormalizada;
+      imagenUrl = `${API_BASE_URL}/${rutaLimpia}`;
+    }
+    
     return (
       <TouchableOpacity
         style={styles.productoCard}
         onPress={() => navigation.navigate('ProductoDetalle', { productoId: item.id_producto })}
       >
-        {item.imagen_principal || item.imagenUrl ? (
+        {imagenUrl ? (
           <Image 
-            source={{ uri: item.imagen_principal || item.imagenUrl }} 
-            style={styles.productoImagen} 
+            source={{ uri: imagenUrl }} 
+            style={styles.productoImagen}
+            onError={(error) => {
+              console.error('Error cargando imagen:', error.nativeEvent.error);
+              console.error('URL intentada:', imagenUrl);
+            }}
+            onLoad={() => {
+              console.log('✅ Imagen cargada exitosamente:', imagenUrl);
+            }}
           />
         ) : (
           <View style={[styles.productoImagen, styles.productoImagenPlaceholder]}>
@@ -209,7 +240,7 @@ export default function MisProductosScreen({ navigation }) {
           </View>
           <View style={styles.statCard}>
             <Text style={[styles.statValue, { color: '#2e7d32' }]}>{productosActivos}</Text>
-            <Text style={styles.statLabel}>Activos</Text>
+            <Text style={styles.statLabel}>Disponibles</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={[styles.statValue, { color: '#fbc02d' }]}>{productosStockBajo}</Text>
@@ -250,8 +281,8 @@ export default function MisProductosScreen({ navigation }) {
           <Ionicons name="filter" size={20} color="#2e7d32" />
           <Text style={styles.filterText}>
             {filtroEstado === 'todos' ? 'Todos' :
-             filtroEstado === 'activos' ? 'Activos' :
-             filtroEstado === 'inactivos' ? 'Inactivos' :
+             filtroEstado === 'activos' ? 'Disponibles' :
+             filtroEstado === 'inactivos' ? 'No disponibles' :
              filtroEstado === 'stock-bajo' ? 'Stock Bajo' : 'Agotados'}
           </Text>
         </TouchableOpacity>
