@@ -396,7 +396,48 @@ export const getProductoPorId = async (ctx: RouterContext<"/productos/:id">) => 
 
 export const postProducto = async (ctx: Context) => {
   try {
-    const body = await ctx.request.body.json();
+    // Log del request completo antes de parsear
+    const contentType = ctx.request.headers.get("content-type") || "";
+    const contentLength = ctx.request.headers.get("content-length") || "unknown";
+    console.log(`[ProductosController.postProducto] Request recibido:`, {
+      method: ctx.request.method,
+      contentType,
+      contentLength,
+      url: ctx.request.url.toString()
+    });
+    
+    // Leer el body como texto primero para debugging y evitar problemas con JSON grandes
+    let body: any;
+    try {
+      // Intentar leer como JSON directamente
+      body = await ctx.request.body.json();
+      console.log(`[ProductosController.postProducto] ✅ Body parseado como JSON exitosamente`);
+    } catch (parseError) {
+      console.error(`[ProductosController.postProducto] ❌ Error parseando JSON:`, parseError);
+      // Si falla, intentar leer como texto y parsear manualmente
+      try {
+        const bodyText = await ctx.request.body.text();
+        console.log(`[ProductosController.postProducto] Body como texto (primeros 500 chars):`, bodyText.substring(0, 500));
+        body = JSON.parse(bodyText);
+        console.log(`[ProductosController.postProducto] ✅ Body parseado manualmente exitosamente`);
+      } catch (textError) {
+        console.error(`[ProductosController.postProducto] ❌ Error parseando body como texto:`, textError);
+        throw new Error("Error al parsear el body del request");
+      }
+    }
+    
+    // Log de todas las claves del body
+    console.log(`[ProductosController.postProducto] Claves en body:`, Object.keys(body));
+    
+    // Verificar si el body está completo (no truncado)
+    const bodyStr = JSON.stringify(body);
+    const bodySize = bodyStr.length;
+    const contentLengthNum = parseInt(contentLength) || 0;
+    console.log(`[ProductosController.postProducto] Tamaño del body parseado: ${bodySize} chars, Content-Length header: ${contentLengthNum} bytes`);
+    
+    if (contentLengthNum > 0 && bodySize < contentLengthNum * 0.9) {
+      console.warn(`[ProductosController.postProducto] ⚠️ ADVERTENCIA: El body parseado es significativamente más pequeño que Content-Length. Posible truncamiento.`);
+    }
     
     // Extraer imagenData ANTES de validar con Zod
     const imagenDataRaw = body.imagenData;
@@ -406,10 +447,12 @@ export const postProducto = async (ctx: Context) => {
       nombre: body.nombre,
       precio: body.precio,
       stock: body.stock,
+      tieneImagenData: 'imagenData' in body,
       imagenData: imagenDataRaw ? 
         (typeof imagenDataRaw === 'string' ? `${imagenDataRaw.substring(0, 100)}... (${imagenDataRaw.length} chars)` : `Tipo: ${typeof imagenDataRaw}`) 
         : 'null/undefined',
       tipoImagenData: typeof imagenDataRaw,
+      valorImagenData: imagenDataRaw === null ? 'null' : imagenDataRaw === undefined ? 'undefined' : 'presente'
     });
     
     console.log(`[ProductosController.postProducto] Validando body completo con Zod (imagenData será ignorado por .strip())...`);
@@ -433,11 +476,24 @@ export const postProducto = async (ctx: Context) => {
       if (typeof imagenDataRaw === 'string' && imagenDataRaw.trim().length > 0) {
         imagenData = imagenDataRaw;
         console.log(`[ProductosController.postProducto] ✅ imagenData validado: tipo=string, longitud=${imagenData.length}`);
+        console.log(`[ProductosController.postProducto] Prefijo imagenData: ${imagenData.substring(0, 100)}`);
+        console.log(`[ProductosController.postProducto] ¿Tiene prefijo data:image/? ${imagenData.startsWith('data:image/')}`);
       } else {
         console.log(`[ProductosController.postProducto] ⚠️ imagenData ignorado (tipo inválido o vacío):`, typeof imagenDataRaw);
+        if (typeof imagenDataRaw !== 'string') {
+          console.log(`[ProductosController.postProducto] Tipo recibido: ${typeof imagenDataRaw}, valor: ${JSON.stringify(imagenDataRaw).substring(0, 100)}`);
+        }
       }
     } else {
       console.log(`[ProductosController.postProducto] ⚠️ No se recibió imagenData`);
+      console.log(`[ProductosController.postProducto] Body completo (primeros 1000 chars):`, JSON.stringify(body).substring(0, 1000));
+      console.log(`[ProductosController.postProducto] Tamaño del body:`, JSON.stringify(body).length, 'caracteres');
+      console.log(`[ProductosController.postProducto] Todas las claves del body:`, Object.keys(body).join(', '));
+    }
+    
+    // Verificar si imagenData está presente pero es una cadena vacía
+    if (imagenDataRaw === '') {
+      console.log(`[ProductosController.postProducto] ⚠️ imagenData es una cadena vacía`);
     }
 
     const { imagen_principal, ...productoData } = validated;
@@ -551,10 +607,37 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
 
     const body = await ctx.request.body.json();
     
+    // Extraer imagenData ANTES de validar con Zod (similar a postProducto)
+    const imagenDataRaw = body.imagenData;
+    
+    // Log para debugging
+    console.log(`[ProductosController.putProducto] Body recibido:`, {
+      id_producto,
+      nombre: body.nombre,
+      precio: body.precio,
+      imagenData: imagenDataRaw ? 
+        (typeof imagenDataRaw === 'string' ? `${imagenDataRaw.substring(0, 100)}... (${imagenDataRaw.length} chars)` : `Tipo: ${typeof imagenDataRaw}`) 
+        : 'null/undefined',
+      tipoImagenData: typeof imagenDataRaw,
+    });
+    
     const bodyWithId = { ...body, id_producto };
     const validated = productosUpdateSchema.parse(bodyWithId);
 
-    const { imagenData, ...productoData } = validated;
+    // Validar y normalizar imagenData manualmente
+    let imagenData: string | undefined = undefined;
+    if (imagenDataRaw !== null && imagenDataRaw !== undefined) {
+      if (typeof imagenDataRaw === 'string' && imagenDataRaw.trim().length > 0) {
+        imagenData = imagenDataRaw;
+        console.log(`[ProductosController.putProducto] ✅ imagenData validado: tipo=string, longitud=${imagenData.length}`);
+      } else {
+        console.log(`[ProductosController.putProducto] ⚠️ imagenData ignorado (tipo inválido o vacío):`, typeof imagenDataRaw);
+      }
+    } else {
+      console.log(`[ProductosController.putProducto] ⚠️ No se recibió imagenData`);
+    }
+
+    const { ...productoData } = validated;
 
     const objProductosCheck = new ProductosModel();
     const productoExiste = await objProductosCheck.ObtenerProductoPorId(id_producto);
@@ -587,6 +670,14 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
     const objProductos = new ProductosModel(productoCompleto);
     // Normalizar null a undefined para imagenData
     const imagenDataNormalizada = imagenData === null ? undefined : imagenData;
+    
+    // Log para debugging
+    if (imagenDataNormalizada) {
+      console.log(`[ProductosController.putProducto] ✅ imagenData recibida: tipo=${typeof imagenDataNormalizada}, longitud=${imagenDataNormalizada.length}, prefijo=${imagenDataNormalizada.substring(0, 30)}...`);
+    } else {
+      console.log(`[ProductosController.putProducto] ⚠️ No se recibió imagenData`);
+    }
+    
     const result = await objProductos.EditarProducto(imagenDataNormalizada);
 
     ctx.response.status = result.success ? 200 : 404;
@@ -834,6 +925,8 @@ export const getProductosPorProductor = async (ctx: RouterContext<"/productos/pr
 
 export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/detalle">) => {
   try {
+    console.log(`[ProductosController.getProductoDetallado] ✅ FUNCIÓN EJECUTÁNDOSE - Versión sin productos_categorias`);
+    
     const id_producto = Number(ctx.params.id);
     
     if (isNaN(id_producto) || id_producto <= 0) {
@@ -845,35 +938,19 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
       return;
     }
 
-    const { obtenerConexion } = await import("../Models/Conexion.ts");
-    const conexion = await obtenerConexion();
+    console.log(`[ProductosController.getProductoDetallado] Obteniendo producto ${id_producto}`);
     
-    // Usar LEFT JOINs para evitar errores si faltan relaciones
-    const producto = await conexion.query(`
-      SELECT 
-        p.*,
-        u.nombre as nombre_productor,
-        u.email as email_productor,
-        u.telefono as telefono_productor,
-        u.direccion as direccion_productor,
-        c.nombre as ciudad_origen,
-        d.nombre as departamento_origen,
-        r.nombre as region_origen,
-        GROUP_CONCAT(DISTINCT cat.nombre) as categorias,
-        AVG(res.calificacion) as calificacion_promedio,
-        COUNT(DISTINCT res.id_resena) as total_resenas
-      FROM productos p
-      LEFT JOIN usuarios u ON p.id_usuario = u.id_usuario
-      LEFT JOIN ciudades c ON p.id_ciudad_origen = c.id_ciudad
-      LEFT JOIN departamentos d ON c.id_departamento = d.id_departamento
-      LEFT JOIN regiones r ON d.id_region = r.id_region
-      LEFT JOIN productos_categorias pc ON p.id_producto = pc.id_producto
-      LEFT JOIN categorias cat ON pc.id_categoria = cat.id_categoria AND (cat.activa = 1 OR cat.activa IS NULL)
-      LEFT JOIN resenas res ON p.id_producto = res.id_producto
-      WHERE p.id_producto = ?
-      GROUP BY p.id_producto
-    `, [id_producto]);
-
+    // Consulta simplificada - primero obtener el producto básico
+    let producto: any[];
+    try {
+      producto = await conexion.query(`
+        SELECT * FROM productos WHERE id_producto = ?
+      `, [id_producto]);
+    } catch (error) {
+      console.error(`[ProductosController.getProductoDetallado] Error en consulta básica:`, error);
+      throw error;
+    }
+    
     if (producto.length === 0) {
       ctx.response.status = 404;
       ctx.response.body = {
@@ -882,24 +959,112 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
       };
       return;
     }
+    
+    const productoData = producto[0] as any;
+    
+    // Obtener información adicional de forma segura (con try-catch para cada JOIN)
+    let nombre_productor = null;
+    let email_productor = null;
+    let telefono_productor = null;
+    let direccion_productor = null;
+    
+    if (productoData.id_usuario) {
+      try {
+        const usuarioData = await conexion.query(`
+          SELECT nombre, email, telefono, direccion FROM usuarios WHERE id_usuario = ?
+        `, [productoData.id_usuario]);
+        if (usuarioData.length > 0) {
+          nombre_productor = usuarioData[0].nombre;
+          email_productor = usuarioData[0].email;
+          telefono_productor = usuarioData[0].telefono;
+          direccion_productor = usuarioData[0].direccion;
+        }
+      } catch (error) {
+        console.log(`[ProductosController.getProductoDetallado] Error obteniendo datos de usuario:`, error);
+      }
+    }
+    
+    let ciudad_origen = null;
+    let departamento_origen = null;
+    let region_origen = null;
+    
+    if (productoData.id_ciudad_origen) {
+      try {
+        const ciudadData = await conexion.query(`
+          SELECT c.nombre as ciudad, d.nombre as departamento, r.nombre as region
+          FROM ciudades c
+          LEFT JOIN departamentos d ON c.id_departamento = d.id_departamento
+          LEFT JOIN regiones r ON d.id_region = r.id_region
+          WHERE c.id_ciudad = ?
+        `, [productoData.id_ciudad_origen]);
+        if (ciudadData.length > 0) {
+          ciudad_origen = ciudadData[0].ciudad;
+          departamento_origen = ciudadData[0].departamento;
+          region_origen = ciudadData[0].region;
+        }
+      } catch (error) {
+        console.log(`[ProductosController.getProductoDetallado] Error obteniendo datos de ubicación:`, error);
+      }
+    }
+    
+    let categoria_nombre = null;
+    
+    if (productoData.id_categoria) {
+      try {
+        const categoriaData = await conexion.query(`
+          SELECT nombre FROM categorias WHERE id_categoria = ? AND (activa = 1 OR activa IS NULL)
+        `, [productoData.id_categoria]);
+        if (categoriaData.length > 0) {
+          categoria_nombre = categoriaData[0].nombre;
+        }
+      } catch (error) {
+        console.log(`[ProductosController.getProductoDetallado] Error obteniendo datos de categoría:`, error);
+      }
+    }
+    
+    // Obtener estadísticas de reseñas por separado (si la tabla existe)
+    let calificacion_promedio = null;
+    let total_resenas = 0;
+    try {
+      const resenasData = await conexion.query(`
+        SELECT 
+          AVG(calificacion) as promedio,
+          COUNT(*) as total
+        FROM resenas
+        WHERE id_producto = ?
+      `, [id_producto]);
+      
+      if (resenasData.length > 0 && resenasData[0].promedio) {
+        calificacion_promedio = parseFloat(resenasData[0].promedio).toFixed(1);
+        total_resenas = parseInt(resenasData[0].total) || 0;
+      }
+    } catch (resenasError) {
+      // Si la tabla resenas no existe, simplemente ignorar el error
+      console.log(`[ProductosController.getProductoDetallado] Tabla resenas no disponible, continuando sin estadísticas de reseñas`);
+    }
 
     const objProductos = new ProductosModel();
     const baseUrl = getBaseUrl(ctx);
-    const productoData = producto[0] as any;
     
     // Corregir el nombre del campo de imagen
     const imagenPrincipal = productoData.imagen_principal || null;
     
     const productoDetallado = {
       ...productoData,
+      nombre_productor,
+      email_productor,
+      telefono_productor,
+      direccion_productor,
+      ciudad_origen,
+      departamento_origen,
+      region_origen,
+      categoria_nombre,
       imagenUrl: imagenPrincipal 
         ? objProductos.construirUrlImagen(imagenPrincipal, baseUrl)
         : null,
-      calificacion_promedio: productoData.calificacion_promedio 
-        ? parseFloat(String(productoData.calificacion_promedio)).toFixed(1) 
-        : null,
-      total_resenas: parseInt(String(productoData.total_resenas)) || 0,
-      categorias: productoData.categorias ? String(productoData.categorias).split(',') : []
+      calificacion_promedio: calificacion_promedio,
+      total_resenas: total_resenas,
+      categorias: categoria_nombre ? [categoria_nombre] : []
     };
 
     ctx.response.status = 200;
@@ -908,17 +1073,26 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
       message: "Producto encontrado.",
       data: productoDetallado,
     };
-  } catch (error) {
-    console.error("Error en getProductoDetallado:", error);
-    console.error("Error details:", error instanceof Error ? error.message : String(error));
+  } catch (error: any) {
+    console.error("❌ ERROR en getProductoDetallado:", error);
+    console.error("❌ Error details:", error instanceof Error ? error.message : String(error));
     if (error instanceof Error && error.stack) {
-      console.error("Error stack:", error.stack);
+      console.error("❌ Error stack:", error.stack);
     }
+    
+    // Verificar si el error menciona productos_categorias
+    const errorMessage = error?.message || String(error);
+    if (errorMessage.includes('productos_categorias')) {
+      console.error("❌❌❌ ERROR CRÍTICO: Se está intentando usar la tabla productos_categorias!");
+      console.error("❌ Esto NO debería pasar. El código actual NO usa esa tabla.");
+      console.error("❌ VERIFICA QUE EL SERVIDOR SE HAYA REINICIADO COMPLETAMENTE.");
+    }
+    
     ctx.response.status = 500;
     ctx.response.body = {
       success: false,
       message: "Error interno del servidor.",
-      error: error instanceof Error ? error.message : String(error)
+      error: errorMessage
     };
   }
 };

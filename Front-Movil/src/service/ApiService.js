@@ -31,6 +31,24 @@ api.interceptors.request.use(
       // Log de peticiones en desarrollo
       if (__DEV__) {
         console.log(`📤 ${config.method?.toUpperCase()} ${config.url}`);
+        
+        // Si es POST/PUT y tiene data, loguear información del body
+        if ((config.method === 'post' || config.method === 'put') && config.data) {
+          const dataStr = JSON.stringify(config.data);
+          const dataSize = dataStr.length;
+          console.log(`📦 Body size: ${dataSize} caracteres`);
+          
+          // Verificar si tiene imagenData
+          if (config.data.imagenData) {
+            const imagenDataSize = config.data.imagenData.length;
+            console.log(`🖼️ imagenData presente: ${imagenDataSize} caracteres`);
+            console.log(`🖼️ imagenData prefijo: ${config.data.imagenData.substring(0, 50)}...`);
+            console.log(`🖼️ imagenData tiene prefijo data:image/: ${config.data.imagenData.startsWith('data:image/')}`);
+          } else {
+            console.log(`⚠️ imagenData NO presente en el body`);
+            console.log(`📋 Claves en body:`, Object.keys(config.data).join(', '));
+          }
+        }
       }
     } catch (error) {
       console.error('Error al obtener token:', error);

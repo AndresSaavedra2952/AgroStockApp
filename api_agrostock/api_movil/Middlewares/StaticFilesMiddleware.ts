@@ -4,7 +4,9 @@
 import { Context } from "../Dependencies/dependencias.ts";
 import { join } from "../Dependencies/dependencias.ts";
 
-const UPLOADS_DIR = "./uploads";
+// Usar ruta absoluta para uploads
+// @ts-ignore - Deno is a global object in Deno runtime
+const UPLOADS_DIR = join(Deno.cwd(), "uploads");
 
 /**
  * Middleware para servir archivos estáticos desde uploads
@@ -17,21 +19,30 @@ export async function staticFilesMiddleware(ctx: Context, next: () => Promise<un
   }
 
   try {
-    // Obtener la ruta del archivo
-    const filePath = ctx.request.url.pathname.replace('/uploads/', '');
+    // Obtener la ruta del archivo (normalizar barras)
+    let filePath = ctx.request.url.pathname.replace('/uploads/', '');
+    // Normalizar barras invertidas a barras normales
+    filePath = filePath.replace(/\\/g, '/');
+    
+    console.log(`[StaticFilesMiddleware] Solicitando archivo: ${filePath}`);
+    
     const fullPath = join(UPLOADS_DIR, filePath);
+    console.log(`[StaticFilesMiddleware] Ruta completa: ${fullPath}`);
 
     // Verificar que el archivo existe
     let fileInfo;
     try {
       // @ts-ignore - Deno is a global object in Deno runtime
       fileInfo = await Deno.stat(fullPath);
-    } catch {
+      console.log(`[StaticFilesMiddleware] ✅ Archivo encontrado: ${fullPath}, tamaño: ${fileInfo.size} bytes`);
+    } catch (statError) {
+      console.error(`[StaticFilesMiddleware] ❌ Archivo no encontrado: ${fullPath}`);
+      console.error(`[StaticFilesMiddleware] Error:`, statError);
       ctx.response.status = 404;
       ctx.response.body = {
         success: false,
         error: "FILE_NOT_FOUND",
-        message: "Archivo no encontrado"
+        message: `Archivo no encontrado: ${filePath}`
       };
       return;
     }

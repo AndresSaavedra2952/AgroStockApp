@@ -31,11 +31,17 @@ export interface ProductoDataResponse extends ProductoData {
 
 export class ProductosModel {
     public _objProducto: ProductoData | null;
-    private readonly UPLOADS_DIR = "./uploads";
-
+    private readonly UPLOADS_DIR: string;
+    
     constructor(objProducto: ProductoData | null = null) {
         this._objProducto = objProducto;
+        // Usar ruta absoluta basada en el directorio actual
+        // @ts-ignore - Deno is a global object in Deno runtime
+        const currentDir = Deno.cwd();
+        this.UPLOADS_DIR = join(currentDir, "uploads");
+        console.log(`[ProductosModel] UPLOADS_DIR inicializado en: ${this.UPLOADS_DIR}`);
     }
+
 
     public async ListarProductos(): Promise<ProductoData[]> {
         try {
@@ -218,31 +224,102 @@ export class ProductosModel {
             
             if (imagenData) {
                 try {
-                    console.log(`[ProductosModel] Intentando guardar imagen para producto ${nuevoProducto.id_producto}`);
-                    console.log(`[ProductosModel] Tipo de imagenData: ${typeof imagenData}, Longitud: ${imagenData.length}, Primeros 50 chars: ${imagenData.substring(0, 50)}`);
+                    console.log(`[ProductosModel] ========== INICIANDO PROCESO DE IMAGEN ==========`);
+                    console.log(`[ProductosModel] Producto ID: ${nuevoProducto.id_producto}`);
+                    console.log(`[ProductosModel] Tipo de imagenData: ${typeof imagenData}`);
+                    console.log(`[ProductosModel] Longitud de imagenData: ${imagenData.length} caracteres`);
+                    console.log(`[ProductosModel] Primeros 50 chars: ${imagenData.substring(0, 50)}`);
+                    console.log(`[ProductosModel] ¿Tiene prefijo data:image/? ${imagenData.startsWith('data:image/')}`);
                     
+                    console.log(`[ProductosModel] Llamando a guardarImagen...`);
                     rutaImagen = await this.guardarImagen(nuevoProducto.id_producto, imagenData);
-                    console.log(`[ProductosModel] ✅ Imagen guardada exitosamente en: ${rutaImagen}`);
+                    console.log(`[ProductosModel] ✅ guardarImagen completado. Ruta retornada: ${rutaImagen}`);
                     
-                    await conexion.execute("UPDATE productos SET imagen_principal = ? WHERE id_producto = ?", 
-                    [rutaImagen, nuevoProducto.id_producto]
-                    );
-                    console.log(`[ProductosModel] ✅ imagen_principal actualizada en BD: ${rutaImagen}`);
+                    if (!rutaImagen || rutaImagen.trim().length === 0) {
+                        throw new Error("guardarImagen retornó una ruta vacía o null");
+                    }
+                    
+                    if (rutaImagen) {
+                        console.log(`[ProductosModel] 🔄 Ejecutando UPDATE para guardar ruta: ${rutaImagen} en producto ${nuevoProducto.id_producto}`);
+                        
+                        const updateResult = await conexion.execute("UPDATE productos SET imagen_principal = ? WHERE id_producto = ?", 
+                        [rutaImagen, nuevoProducto.id_producto]
+                        );
+                        
+                        console.log(`[ProductosModel] ✅ UPDATE ejecutado. Rows affected: ${updateResult.affectedRows || 0}`);
+                        console.log(`[ProductosModel] ✅ UPDATE info:`, {
+                            affectedRows: updateResult.affectedRows,
+                            insertId: updateResult.insertId,
+                            changedRows: (updateResult as any).changedRows
+                        });
+                        
+                        if (!updateResult.affectedRows || updateResult.affectedRows === 0) {
+                            console.error(`[ProductosModel] ❌ ADVERTENCIA: UPDATE no afectó ninguna fila. El producto podría no existir o ya tener ese valor.`);
+                            // Intentar verificar si el producto existe
+                            const productoCheck = await conexion.query("SELECT id_producto, imagen_principal FROM productos WHERE id_producto = ?", [nuevoProducto.id_producto]);
+                            if (productoCheck.length === 0) {
+                                console.error(`[ProductosModel] ❌ ERROR CRÍTICO: El producto ${nuevoProducto.id_producto} no existe después del INSERT!`);
+                            } else {
+                                console.log(`[ProductosModel] Producto existe. imagen_principal actual: ${productoCheck[0].imagen_principal}`);
+                            }
+                        } else {
+                            console.log(`[ProductosModel] ✅ imagen_principal actualizada en BD: ${rutaImagen}`);
+                            
+                            // Verificar que se actualizó correctamente ANTES del COMMIT
+                            const verificacion = await conexion.query("SELECT imagen_principal FROM productos WHERE id_producto = ?", [nuevoProducto.id_producto]);
+                            if (verificacion.length > 0) {
+                                const imagenGuardada = verificacion[0].imagen_principal;
+                                console.log(`[ProductosModel] ✅ Verificación ANTES de COMMIT: imagen_principal en BD = ${imagenGuardada}`);
+                                
+                                if (imagenGuardada !== rutaImagen) {
+                                    console.error(`[ProductosModel] ❌ ERROR: La ruta guardada (${imagenGuardada}) no coincide con la esperada (${rutaImagen})`);
+                                    errorImagen = `La ruta no se guardó correctamente. Esperada: ${rutaImagen}, Obtenida: ${imagenGuardada}`;
+                                }
+                            } else {
+                                console.error(`[ProductosModel] ❌ ERROR: No se pudo verificar la imagen después del UPDATE`);
+                            }
+                        }
+                    } else {
+                        console.error(`[ProductosModel] ❌ rutaImagen es null después de guardarImagen`);
+                        errorImagen = "La ruta de la imagen es null";
+                    }
                 } catch (imageError) {
                     const errorMsg = imageError instanceof Error ? imageError.message : String(imageError);
-                    console.error(`[ProductosModel] ❌ Error al procesar imagen:`, errorMsg);
-                    console.error(`[ProductosModel] Stack trace:`, imageError instanceof Error ? imageError.stack : 'No stack trace');
+                    console.error(`[ProductosModel] ❌❌❌ ERROR AL PROCESAR IMAGEN ❌❌❌`);
+                    console.error(`[ProductosModel] Mensaje de error:`, errorMsg);
+                    console.error(`[ProductosModel] Tipo de error:`, imageError instanceof Error ? imageError.name : typeof imageError);
+                    console.error(`[ProductosModel] Stack trace completo:`, imageError instanceof Error ? imageError.stack : 'No stack trace');
+                    console.error(`[ProductosModel] Error completo:`, imageError);
                     errorImagen = errorMsg;
                     // No hacer rollback del producto, pero registrar el error
                     // El producto se creará sin imagen
+                    // IMPORTANTE: No lanzar el error para que el producto se cree sin imagen
                 }
             } else {
                 console.log(`[ProductosModel] ⚠️ No se proporcionó imagenData para el producto ${nuevoProducto.id_producto}`);
             }
 
             await conexion.execute("COMMIT");
+            console.log(`[ProductosModel] ✅ COMMIT ejecutado`);
 
+            // Verificar DESPUÉS del COMMIT que la imagen se mantuvo
             const productoFinal = await conexion.query("SELECT * FROM productos WHERE id_producto = ?", [nuevoProducto.id_producto]);
+            
+            if (productoFinal.length > 0) {
+                const imagenFinal = productoFinal[0].imagen_principal;
+                console.log(`[ProductosModel] ✅ Verificación DESPUÉS de COMMIT: imagen_principal = ${imagenFinal}`);
+                
+                if (rutaImagen && imagenFinal !== rutaImagen) {
+                    console.error(`[ProductosModel] ❌ ERROR CRÍTICO: La imagen se perdió después del COMMIT!`);
+                    console.error(`[ProductosModel] Ruta esperada: ${rutaImagen}`);
+                    console.error(`[ProductosModel] Ruta en BD: ${imagenFinal}`);
+                    errorImagen = `La imagen se perdió después del COMMIT. Esperada: ${rutaImagen}, Obtenida: ${imagenFinal || 'NULL'}`;
+                } else if (rutaImagen && imagenFinal === rutaImagen) {
+                    console.log(`[ProductosModel] ✅✅✅ CONFIRMADO: La imagen se guardó correctamente en la BD: ${imagenFinal}`);
+                }
+            } else {
+                console.error(`[ProductosModel] ❌ ERROR: No se encontró el producto después del COMMIT`);
+            }
 
             let mensaje = "Producto agregado exitosamente.";
             if (errorImagen) {
@@ -395,7 +472,18 @@ export class ProductosModel {
 
     public construirUrlImagen(rutaImagen: string | null | undefined, baseUrl: string = "http://localhost:8000"): string | null {
         if (!rutaImagen) return null;
-        return `${baseUrl}/${rutaImagen}`;
+        
+        // Normalizar la ruta: cambiar barras invertidas por barras normales (Windows)
+        const rutaNormalizada = rutaImagen.replace(/\\/g, '/');
+        
+        // Asegurarse de que la ruta no empiece con /
+        const rutaLimpia = rutaNormalizada.startsWith('/') ? rutaNormalizada.substring(1) : rutaNormalizada;
+        
+        // Construir URL completa
+        const url = `${baseUrl}/${rutaLimpia}`;
+        console.log(`[ProductosModel.construirUrlImagen] Ruta original: ${rutaImagen}, URL construida: ${url}`);
+        
+        return url;
     }
 
     private async existeDirectorio(ruta: string): Promise<boolean> {
@@ -410,11 +498,16 @@ export class ProductosModel {
 
     private async crearDirectorio(ruta: string): Promise<void> {
         try {
+            console.log(`[ProductosModel.crearDirectorio] Creando directorio: ${ruta}`);
             // @ts-ignore - Deno is a global object in Deno runtime
             await Deno.mkdir(ruta, { recursive: true });
+            console.log(`[ProductosModel.crearDirectorio] ✅ Directorio creado: ${ruta}`);
         } catch (error) {
             // @ts-ignore - Deno is a global object in Deno runtime
-            if (!(error instanceof Deno.errors.AlreadyExists)) {
+            if (error instanceof Deno.errors.AlreadyExists) {
+                console.log(`[ProductosModel.crearDirectorio] Directorio ya existe: ${ruta}`);
+            } else {
+                console.error(`[ProductosModel.crearDirectorio] ❌ Error al crear directorio:`, error);
                 throw error;
             }
         }
@@ -422,19 +515,39 @@ export class ProductosModel {
 
     private async crearCarpetaProducto(idProducto: number): Promise<string> {
         try {
+            console.log(`[ProductosModel.crearCarpetaProducto] Creando carpeta para producto ${idProducto}`);
+            console.log(`[ProductosModel.crearCarpetaProducto] UPLOADS_DIR: ${this.UPLOADS_DIR}`);
+            
+            // Crear carpeta uploads si no existe
             if (!(await this.existeDirectorio(this.UPLOADS_DIR))) {
+                console.log(`[ProductosModel.crearCarpetaProducto] Creando carpeta uploads: ${this.UPLOADS_DIR}`);
                 await this.crearDirectorio(this.UPLOADS_DIR);
+                console.log(`[ProductosModel.crearCarpetaProducto] ✅ Carpeta uploads creada`);
+            } else {
+                console.log(`[ProductosModel.crearCarpetaProducto] ✅ Carpeta uploads ya existe`);
             }
 
+            // Crear carpeta del producto
             const productDir = join(this.UPLOADS_DIR, idProducto.toString());
+            console.log(`[ProductosModel.crearCarpetaProducto] Ruta de carpeta producto: ${productDir}`);
+            
             if (!(await this.existeDirectorio(productDir))) {
+                console.log(`[ProductosModel.crearCarpetaProducto] Creando carpeta producto: ${productDir}`);
                 await this.crearDirectorio(productDir);
+                console.log(`[ProductosModel.crearCarpetaProducto] ✅ Carpeta producto creada`);
+            } else {
+                console.log(`[ProductosModel.crearCarpetaProducto] ✅ Carpeta producto ya existe`);
             }
+            
+            // Verificar que ambas carpetas existen
+            const uploadsExiste = await this.existeDirectorio(this.UPLOADS_DIR);
+            const productExiste = await this.existeDirectorio(productDir);
+            console.log(`[ProductosModel.crearCarpetaProducto] Verificación: uploads existe=${uploadsExiste}, producto existe=${productExiste}`);
 
             return productDir;
         } catch (error) {
-            console.error(`Error al crear carpeta para producto`, error);
-            throw new Error("Error al crear directorio para la imagen.");
+            console.error(`[ProductosModel.crearCarpetaProducto] ❌ Error al crear carpeta para producto:`, error);
+            throw new Error("Error al crear directorio para la imagen: " + (error instanceof Error ? error.message : "Error desconocido"));
         }
     }
 
@@ -468,38 +581,148 @@ export class ProductosModel {
     }
 
     private detectarTipoImagen(imagenData: string): string {
+        console.log(`[ProductosModel.detectarTipoImagen] Detectando tipo de imagen...`);
+        console.log(`[ProductosModel.detectarTipoImagen] Primeros 50 chars: ${imagenData.substring(0, 50)}`);
 
-      if (imagenData.startsWith('data:image/')) {
+        if (imagenData.startsWith('data:image/')) {
             const match = imagenData.match(/data:image\/([^;]+)/);
-            return match ? match[1] : 'jpg';
+            const extension = match ? match[1] : 'jpg';
+            // Normalizar extensiones comunes
+            if (extension === 'jpeg') return 'jpg';
+            console.log(`[ProductosModel.detectarTipoImagen] Tipo detectado desde data:image/: ${extension}`);
+            return extension;
         }
         
+        // Si es data:image;base64, intentar detectar desde los primeros bytes del base64
+        if (imagenData.startsWith('data:image;base64,') || imagenData.startsWith('data:image,base64,')) {
+            console.log(`[ProductosModel.detectarTipoImagen] Formato sin tipo MIME específico, detectando desde base64...`);
+            const partes = imagenData.split(',');
+            if (partes.length >= 2) {
+                const base64Data = partes[1];
+                // Los primeros bytes del base64 pueden indicar el tipo
+                // JPEG: /9j/4AAQ
+                // PNG: iVBORw0KGgo
+                // GIF: R0lGODlh
+                if (base64Data.startsWith('/9j/') || base64Data.startsWith('/9j/4AAQ')) {
+                    console.log(`[ProductosModel.detectarTipoImagen] Detectado JPEG desde base64`);
+                    return 'jpg';
+                }
+                if (base64Data.startsWith('iVBORw0KGgo')) {
+                    console.log(`[ProductosModel.detectarTipoImagen] Detectado PNG desde base64`);
+                    return 'png';
+                }
+                if (base64Data.startsWith('R0lGODlh')) {
+                    console.log(`[ProductosModel.detectarTipoImagen] Detectado GIF desde base64`);
+                    return 'gif';
+                }
+            }
+            console.log(`[ProductosModel.detectarTipoImagen] No se pudo detectar tipo desde base64, usando jpg por defecto`);
+            return 'jpg';
+        }
 
         if (imagenData.startsWith('http://') || imagenData.startsWith('https://') || imagenData.startsWith('file://')) {
-            const url = new URL(imagenData);
-            const pathname = url.pathname.toLowerCase();
-            if (pathname.includes('.png')) return 'png';
-            if (pathname.includes('.jpg') || pathname.includes('.jpeg')) return 'jpg';
-            if (pathname.includes('.gif')) return 'gif';
-            if (pathname.includes('.webp')) return 'webp';
-            if (pathname.includes('.bmp')) return 'bmp';
-            if (pathname.includes('.svg')) return 'svg';
+            try {
+                const url = new URL(imagenData);
+                const pathname = url.pathname.toLowerCase();
+                if (pathname.includes('.png')) return 'png';
+                if (pathname.includes('.jpg') || pathname.includes('.jpeg')) return 'jpg';
+                if (pathname.includes('.gif')) return 'gif';
+                if (pathname.includes('.webp')) return 'webp';
+                if (pathname.includes('.bmp')) return 'bmp';
+                if (pathname.includes('.svg')) return 'svg';
+            } catch {
+                // Si falla el parseo de URL, continuar
+            }
             return 'jpg';
         }
         
+        console.log(`[ProductosModel.detectarTipoImagen] No se pudo detectar tipo, usando jpg por defecto`);
         return 'jpg';
     }
 
     private async procesarImagen(imagenData: string): Promise<Uint8Array> {
         try {
-            console.log(`Procesando imagen - Entrada: ${imagenData.substring(0, 50)}...`);
+            console.log(`[ProductosModel.procesarImagen] Iniciando procesamiento de imagen`);
+            console.log(`[ProductosModel.procesarImagen] Longitud total: ${imagenData.length} caracteres`);
+            console.log(`[ProductosModel.procesarImagen] Primeros 100 chars: ${imagenData.substring(0, 100)}`);
             
+            // Manejar formato data:image/...;base64,...
             if (imagenData.startsWith('data:image/')) {
-                const base64Data = imagenData.split(',')[1];
-                if (!base64Data) {
-                    throw new Error("Datos base64 invalidos despues del prefijo data:image/");
+                console.log(`[ProductosModel.procesarImagen] Formato detectado: data:image/ (base64 con prefijo)`);
+                
+                // Separar el prefijo del base64
+                const partes = imagenData.split(',');
+                if (partes.length < 2) {
+                    throw new Error("Datos base64 inválidos: no se encontró la coma separadora");
                 }
-                return Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                
+                const base64Data = partes[1];
+                console.log(`[ProductosModel.procesarImagen] Base64 extraído, longitud: ${base64Data.length} caracteres`);
+                
+                if (!base64Data || base64Data.trim().length === 0) {
+                    throw new Error("Datos base64 inválidos: la parte base64 está vacía");
+                }
+                
+                // Decodificar base64
+                console.log(`[ProductosModel.procesarImagen] Decodificando base64...`);
+                const decoded = atob(base64Data);
+                console.log(`[ProductosModel.procesarImagen] Base64 decodificado, longitud: ${decoded.length} caracteres`);
+                
+                // Convertir a Uint8Array
+                const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+                console.log(`[ProductosModel.procesarImagen] ✅ Imagen procesada exitosamente, tamaño: ${bytes.length} bytes`);
+                
+                return bytes;
+            }
+            
+            // Manejar formato data:image;base64,... (sin tipo MIME específico)
+            if (imagenData.startsWith('data:image;base64,')) {
+                console.log(`[ProductosModel.procesarImagen] Formato detectado: data:image;base64, (base64 sin tipo MIME específico)`);
+                
+                // Separar el prefijo del base64
+                const partes = imagenData.split(',');
+                if (partes.length < 2) {
+                    throw new Error("Datos base64 inválidos: no se encontró la coma separadora");
+                }
+                
+                const base64Data = partes[1];
+                console.log(`[ProductosModel.procesarImagen] Base64 extraído, longitud: ${base64Data.length} caracteres`);
+                
+                if (!base64Data || base64Data.trim().length === 0) {
+                    throw new Error("Datos base64 inválidos: la parte base64 está vacía");
+                }
+                
+                // Decodificar base64
+                console.log(`[ProductosModel.procesarImagen] Decodificando base64...`);
+                const decoded = atob(base64Data);
+                console.log(`[ProductosModel.procesarImagen] Base64 decodificado, longitud: ${decoded.length} caracteres`);
+                
+                // Convertir a Uint8Array
+                const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+                console.log(`[ProductosModel.procesarImagen] ✅ Imagen procesada exitosamente, tamaño: ${bytes.length} bytes`);
+                
+                return bytes;
+            }
+            
+            // Manejar formato data:image,base64,... (sin punto y coma)
+            if (imagenData.startsWith('data:image,base64,')) {
+                console.log(`[ProductosModel.procesarImagen] Formato detectado: data:image,base64,`);
+                
+                const partes = imagenData.split(',');
+                if (partes.length < 2) {
+                    throw new Error("Datos base64 inválidos: no se encontró la coma separadora");
+                }
+                
+                const base64Data = partes[1];
+                if (!base64Data || base64Data.trim().length === 0) {
+                    throw new Error("Datos base64 inválidos: la parte base64 está vacía");
+                }
+                
+                const decoded = atob(base64Data);
+                const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+                console.log(`[ProductosModel.procesarImagen] ✅ Imagen procesada exitosamente, tamaño: ${bytes.length} bytes`);
+                
+                return bytes;
             }
             
             if (imagenData.startsWith('file://')) {
@@ -523,6 +746,35 @@ export class ProductosModel {
                     console.error(`Error al leer archivo`, error);
                     throw new Error(`No se pudo leer el archivo: ${rutaArchivo}. Verifica que el archivo existe y tienes permisos de lectura.`);
                 }
+            }
+            
+            // Manejar formato data:image;base64,... (sin tipo MIME específico)
+            if (imagenData.startsWith('data:image;base64,')) {
+                console.log(`[ProductosModel.procesarImagen] Formato detectado: data:image;base64, (base64 sin tipo MIME específico)`);
+                
+                // Separar el prefijo del base64
+                const partes = imagenData.split(',');
+                if (partes.length < 2) {
+                    throw new Error("Datos base64 inválidos: no se encontró la coma separadora");
+                }
+                
+                const base64Data = partes[1];
+                console.log(`[ProductosModel.procesarImagen] Base64 extraído, longitud: ${base64Data.length} caracteres`);
+                
+                if (!base64Data || base64Data.trim().length === 0) {
+                    throw new Error("Datos base64 inválidos: la parte base64 está vacía");
+                }
+                
+                // Decodificar base64
+                console.log(`[ProductosModel.procesarImagen] Decodificando base64...`);
+                const decoded = atob(base64Data);
+                console.log(`[ProductosModel.procesarImagen] Base64 decodificado, longitud: ${decoded.length} caracteres`);
+                
+                // Convertir a Uint8Array
+                const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+                console.log(`[ProductosModel.procesarImagen] ✅ Imagen procesada exitosamente, tamaño: ${bytes.length} bytes`);
+                
+                return bytes;
             }
             
             if (imagenData.startsWith('http://') || imagenData.startsWith('https://')) {
@@ -554,35 +806,94 @@ export class ProductosModel {
 
     private async guardarImagen(idProducto: number, imagenData: string): Promise<string> {
         try {
-            console.log(`[ProductosModel.guardarImagen] Iniciando guardado de imagen para producto ${idProducto}`);
-            console.log(`[ProductosModel.guardarImagen] Tipo de imagenData: ${typeof imagenData}, Longitud: ${imagenData.length}`);
+            console.log(`[ProductosModel.guardarImagen] ========== INICIANDO GUARDADO DE IMAGEN ==========`);
+            console.log(`[ProductosModel.guardarImagen] Producto ID: ${idProducto}`);
+            console.log(`[ProductosModel.guardarImagen] Tipo de imagenData: ${typeof imagenData}`);
+            console.log(`[ProductosModel.guardarImagen] Longitud de imagenData: ${imagenData.length} caracteres`);
+            console.log(`[ProductosModel.guardarImagen] Primeros 100 chars: ${imagenData.substring(0, 100)}`);
             
+            // Verificar que imagenData no esté vacío
+            if (!imagenData || imagenData.trim().length === 0) {
+                throw new Error("imagenData está vacío o es null");
+            }
+            
+            // Crear carpeta del producto
             const productDir = await this.crearCarpetaProducto(idProducto);
-            console.log(`[ProductosModel.guardarImagen] Carpeta creada: ${productDir}`);
+            console.log(`[ProductosModel.guardarImagen] ✅ Carpeta creada/verificada: ${productDir}`);
             
+            // Verificar que la carpeta existe
+            const carpetaExiste = await this.existeDirectorio(productDir);
+            if (!carpetaExiste) {
+                throw new Error(`La carpeta ${productDir} no se pudo crear`);
+            }
+            console.log(`[ProductosModel.guardarImagen] ✅ Carpeta existe: ${carpetaExiste}`);
+            
+            // Generar nombre de archivo
             const timestamp = Date.now();
             const extension = this.detectarTipoImagen(imagenData);
             console.log(`[ProductosModel.guardarImagen] Extensión detectada: ${extension}`);
             
             const nombreArchivo = `imagen_${timestamp}.${extension}`;
             const rutaCompleta = join(productDir, nombreArchivo);
+            console.log(`[ProductosModel.guardarImagen] Ruta completa del archivo: ${rutaCompleta}`);
 
-            console.log(`[ProductosModel.guardarImagen] Guardando imagen como: ${rutaCompleta}`);
-
-            const dataToWrite = await this.procesarImagen(imagenData);
-            console.log(`[ProductosModel.guardarImagen] Imagen procesada, tamaño: ${dataToWrite.length} bytes`);
+            // Procesar imagen (convertir base64 a bytes)
+            console.log(`[ProductosModel.guardarImagen] Procesando imagen...`);
+            let dataToWrite: Uint8Array;
+            try {
+                dataToWrite = await this.procesarImagen(imagenData);
+                console.log(`[ProductosModel.guardarImagen] ✅ Imagen procesada, tamaño: ${dataToWrite.length} bytes`);
+            } catch (procesarError) {
+                console.error(`[ProductosModel.guardarImagen] ❌ ERROR al procesar imagen:`, procesarError);
+                throw new Error(`Error al procesar la imagen: ${procesarError instanceof Error ? procesarError.message : 'Error desconocido'}`);
+            }
+            
+            if (!dataToWrite || dataToWrite.length === 0) {
+                throw new Error("Los datos de la imagen están vacíos después del procesamiento");
+            }
                         
-            // @ts-ignore - Deno is a global object in Deno runtime
-            await Deno.writeFile(rutaCompleta, dataToWrite);
+            // Guardar archivo
+            console.log(`[ProductosModel.guardarImagen] Escribiendo archivo en: ${rutaCompleta}`);
+            console.log(`[ProductosModel.guardarImagen] Tamaño de datos a escribir: ${dataToWrite.length} bytes`);
+            try {
+                // @ts-ignore - Deno is a global object in Deno runtime
+                await Deno.writeFile(rutaCompleta, dataToWrite);
+                console.log(`[ProductosModel.guardarImagen] ✅ Archivo escrito exitosamente`);
+            } catch (writeError) {
+                console.error(`[ProductosModel.guardarImagen] ❌ ERROR al escribir archivo:`, writeError);
+                console.error(`[ProductosModel.guardarImagen] Ruta intentada: ${rutaCompleta}`);
+                console.error(`[ProductosModel.guardarImagen] Tipo de error:`, writeError instanceof Error ? writeError.name : typeof writeError);
+                console.error(`[ProductosModel.guardarImagen] Mensaje de error:`, writeError instanceof Error ? writeError.message : String(writeError));
+                throw new Error(`Error al escribir el archivo: ${writeError instanceof Error ? writeError.message : 'Error desconocido'}`);
+            }
             
-            console.log(`[ProductosModel.guardarImagen] ✅ Imagen guardada exitosamente en: ${rutaCompleta}`);
+            // Verificar que el archivo se guardó correctamente
+            try {
+                // @ts-ignore - Deno is a global object in Deno runtime
+                const fileInfo = await Deno.stat(rutaCompleta);
+                console.log(`[ProductosModel.guardarImagen] ✅ Verificación: Archivo existe, tamaño: ${fileInfo.size} bytes`);
+                
+                if (fileInfo.size === 0) {
+                    throw new Error("El archivo se creó pero está vacío");
+                }
+                
+                if (fileInfo.size !== dataToWrite.length) {
+                    console.warn(`[ProductosModel.guardarImagen] ⚠️ ADVERTENCIA: Tamaño del archivo (${fileInfo.size}) no coincide con datos escritos (${dataToWrite.length})`);
+                }
+            } catch (statError) {
+                console.error(`[ProductosModel.guardarImagen] ❌ ERROR: No se pudo verificar el archivo guardado:`, statError);
+                throw new Error(`El archivo no se guardó correctamente: ${statError instanceof Error ? statError.message : 'Error desconocido'}`);
+            }
             
+            // Generar ruta relativa para la base de datos
             const rutaRelativa = join("uploads", idProducto.toString(), nombreArchivo);
-            console.log(`[ProductosModel.guardarImagen] Ruta relativa: ${rutaRelativa}`);
+            console.log(`[ProductosModel.guardarImagen] Ruta relativa para BD: ${rutaRelativa}`);
+            console.log(`[ProductosModel.guardarImagen] ========== IMAGEN GUARDADA EXITOSAMENTE ==========`);
             
             return rutaRelativa;
         } catch (error) {
-            console.error(`[ProductosModel.guardarImagen] ❌ Error al guardar imagen:`, error);
+            console.error(`[ProductosModel.guardarImagen] ❌❌❌ ERROR AL GUARDAR IMAGEN ❌❌❌`);
+            console.error(`[ProductosModel.guardarImagen] Error:`, error);
             console.error(`[ProductosModel.guardarImagen] Stack trace:`, error instanceof Error ? error.stack : 'No stack trace');
             throw new Error("Error al guardar la imagen: " + (error instanceof Error ? error.message : "Error desconocido"));
         }

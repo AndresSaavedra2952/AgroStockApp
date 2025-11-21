@@ -4,7 +4,7 @@
 // IP local de tu PC (cámbiala por la tuya)
 // Para encontrarla: ipconfig (Windows) o ifconfig (Mac/Linux)
 // Busca "Dirección IPv4"
-const LOCAL_IP = '10.42.122.250';
+const LOCAL_IP = '172.20.10.7';
 
 // Puerto donde corre el backend Deno
 const API_PORT = 8000;

@@ -104,6 +104,20 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
       return;
     }
 
+    // Verificar que tenemos imagenBase64 antes de continuar
+    if (!imagenBase64) {
+      console.log('⚠️ ADVERTENCIA: No hay imagen seleccionada');
+      Alert.alert(
+        'Advertencia', 
+        'No has seleccionado una imagen. El producto se creará sin imagen.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Continuar sin imagen', onPress: () => crearProductoSinImagen() }
+        ]
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       // Log para debugging
@@ -113,6 +127,18 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
         longitudImagen: imagenBase64 ? imagenBase64.length : 0,
         prefijoImagen: imagenBase64 ? imagenBase64.substring(0, 50) : 'N/A',
       });
+
+      // Verificar que imagenBase64 es válido
+      if (!imagenBase64 || typeof imagenBase64 !== 'string' || imagenBase64.length === 0) {
+        console.error('❌ imagenBase64 no es válido:', {
+          existe: !!imagenBase64,
+          tipo: typeof imagenBase64,
+          longitud: imagenBase64 ? imagenBase64.length : 0
+        });
+        Alert.alert('Error', 'La imagen no es válida. Por favor selecciona otra imagen.');
+        setLoading(false);
+        return;
+      }
 
       const productoData = {
         nombre: formData.nombre,
@@ -124,19 +150,54 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
         id_ciudad_origen: formData.id_ciudad_origen,
         unidad_medida: formData.unidadMedida || 'kg',
         disponible: true,
+        imagenData: imagenBase64, // SIEMPRE incluir imagenData si existe
       };
       
-      // Solo incluir imagenData si existe y es un string válido
-      if (imagenBase64 && typeof imagenBase64 === 'string' && imagenBase64.length > 0) {
-        productoData.imagenData = imagenBase64;
+      console.log('✅ imagenData incluido en productoData:', {
+        longitud: imagenBase64.length,
+        prefijo: imagenBase64.substring(0, 50),
+        tienePrefijoData: imagenBase64.startsWith('data:image/'),
+        tipo: typeof imagenBase64,
+        imagenDataEnProductoData: productoData.imagenData ? 'SÍ' : 'NO'
+      });
+
+      // Verificar que imagenData esté en productoData antes de enviar
+      const tieneImagenData = 'imagenData' in productoData && productoData.imagenData;
+      if (!tieneImagenData) {
+        console.error('❌ ERROR CRÍTICO: imagenData no está en productoData antes de enviar!');
+        console.error('Claves en productoData:', Object.keys(productoData));
+        Alert.alert('Error', 'Error al preparar la imagen. Por favor intenta de nuevo.');
+        setLoading(false);
+        return;
       }
 
+      console.log('📤 Verificación antes de enviar:', {
+        tieneImagenData,
+        claves: Object.keys(productoData),
+        tamañoProductoData: JSON.stringify(productoData).length,
+        imagenDataEnProductoData: tieneImagenData ? 
+          `${productoData.imagenData.substring(0, 50)}... (${productoData.imagenData.length} chars)` : 
+          'NO PRESENTE'
+      });
+
       console.log('📤 Enviando productoData al backend:', {
-        ...productoData,
-        imagenData: imagenBase64 ? `${imagenBase64.substring(0, 50)}... (${imagenBase64.length} chars)` : 'null',
+        nombre: productoData.nombre,
+        precio: productoData.precio,
+        stock: productoData.stock,
+        tieneImagenData: !!productoData.imagenData,
+        imagenDataSize: productoData.imagenData ? productoData.imagenData.length : 0,
+        imagenDataPrefijo: productoData.imagenData ? productoData.imagenData.substring(0, 50) : 'N/A'
       });
 
       const response = await productosService.crearProducto(productoData);
+      
+      console.log('📥 Respuesta del backend:', {
+        success: response.success,
+        message: response.message,
+        tieneProducto: !!response.data,
+        imagenPrincipal: response.data?.imagen_principal || 'NO HAY',
+        productoId: response.data?.id_producto || 'NO HAY'
+      });
       if (response.success) {
         if (response.warning) {
           Alert.alert('Producto creado', response.message, [
@@ -152,6 +213,41 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
         Alert.alert('Error', response.message || 'No se pudo crear el producto');
       }
     } catch (error) {
+      console.error('❌ Error al crear producto:', error);
+      console.error('Error completo:', JSON.stringify(error, null, 2));
+      Alert.alert('Error', error.message || 'Error al crear el producto');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función para crear producto sin imagen (fallback)
+  const crearProductoSinImagen = async () => {
+    setLoading(true);
+    try {
+      const productoData = {
+        nombre: formData.nombre,
+        descripcion: formData.descripcion,
+        precio: parseFloat(formData.precio),
+        stock: parseInt(formData.stock),
+        stock_minimo: parseInt(formData.stockMinimo),
+        id_usuario: user.id,
+        id_ciudad_origen: formData.id_ciudad_origen,
+        unidad_medida: formData.unidadMedida || 'kg',
+        disponible: true,
+      };
+
+      const response = await productosService.crearProducto(productoData);
+      if (response.success) {
+        Alert.alert('Éxito', 'Producto creado correctamente (sin imagen)');
+        resetForm();
+        onSuccess && onSuccess();
+        onClose();
+      } else {
+        Alert.alert('Error', response.message || 'No se pudo crear el producto');
+      }
+    } catch (error) {
+      console.error('Error al crear producto sin imagen:', error);
       Alert.alert('Error', 'Error al crear el producto');
     } finally {
       setLoading(false);
