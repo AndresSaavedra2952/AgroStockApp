@@ -8,48 +8,397 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  Image,
+  Switch,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { Ionicons } from '@expo/vector-icons';
 import productosService from '../service/ProductosService';
+import categoriasService from '../service/CategoriasService';
+import ubicacionesService from '../service/UbicacionesService';
+import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../service/conexion';
 
 export default function EditarProductoModal({ visible, onClose, productoId, onSuccess }) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     nombre: '',
     descripcion: '',
     precio: '',
     stock: '',
     stockMinimo: '',
-    unidadMedida: '',
-    pesoAprox: '',
+    unidadMedida: 'kg',
+    id_categoria: null,
+    id_ciudad_origen: null,
+    disponible: true,
+    id_usuario: null,
   });
+  const [imagen, setImagen] = useState(null);
+  const [imagenBase64, setImagenBase64] = useState(null);
+  const [imagenesAdicionales, setImagenesAdicionales] = useState([]); // URLs de imágenes existentes
+  const [imagenesAdicionalesNuevas, setImagenesAdicionalesNuevas] = useState([]); // URIs locales de nuevas imágenes con IDs únicos
+  const [imagenesAdicionalesBase64, setImagenesAdicionalesBase64] = useState([]); // Base64 de nuevas imágenes con IDs únicos
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  
+  // Selectores
+  const [categorias, setCategorias] = useState([]);
+  const [departamentos, setDepartamentos] = useState([]);
+  const [ciudades, setCiudades] = useState([]);
+  const [departamentoSeleccionado, setDepartamentoSeleccionado] = useState(null);
+  const [mostrarSelectorCategoria, setMostrarSelectorCategoria] = useState(false);
+  const [mostrarSelectorDepartamento, setMostrarSelectorDepartamento] = useState(false);
+  const [mostrarSelectorCiudad, setMostrarSelectorCiudad] = useState(false);
 
   useEffect(() => {
     if (visible && productoId) {
-      cargarProducto();
+      // Limpiar estados al abrir el modal para evitar duplicados
+      setImagenesAdicionales([]);
+      setImagenesAdicionalesNuevas([]);
+      setImagenesAdicionalesBase64([]);
+      setImagen(null);
+      setImagenBase64(null);
+      cargarDatos();
     }
   }, [visible, productoId]);
 
-  const cargarProducto = async () => {
+  const cargarDatos = async () => {
     setLoading(true);
     try {
-      const response = await productosService.getProductoPorId(productoId);
+      // Cargar producto - usar getProductoDetallado para obtener todas las imágenes
+      const response = await productosService.getProductoDetallado(productoId);
       if (response.success && response.data) {
         const producto = response.data;
+        
+        console.log(`[EditarProductoModal] Producto cargado:`, {
+          id: producto.id_producto,
+          nombre: producto.nombre,
+          imagenes_adicionales_tipo: typeof producto.imagenes_adicionales,
+          imagenes_adicionales_valor: producto.imagenes_adicionales,
+        });
+        
+        // Cargar imagen principal si existe
+        if (producto.imagenUrl || producto.imagen_principal) {
+          setImagen(producto.imagenUrl || `${API_BASE_URL}/${producto.imagen_principal}`);
+        }
+        
+        // Cargar imágenes adicionales si existen
+        if (producto.imagenes_adicionales) {
+          let imagenesAdic = [];
+          try {
+            if (typeof producto.imagenes_adicionales === 'string') {
+              imagenesAdic = JSON.parse(producto.imagenes_adicionales);
+            } else if (Array.isArray(producto.imagenes_adicionales)) {
+              imagenesAdic = producto.imagenes_adicionales;
+            }
+            
+            console.log(`[EditarProductoModal.cargarDatos] Imágenes adicionales parseadas desde BD:`, {
+              cantidad: imagenesAdic.length,
+              contenido: imagenesAdic.map((img, idx) => ({ indice: idx, ruta: img?.substring(0, 80) }))
+            });
+            
+            const imagenesConUrl = imagenesAdic.map(img => {
+              if (!img) return null;
+              if (img.startsWith('http')) {
+                console.log(`[EditarProductoModal.cargarDatos] Imagen ya tiene URL completa: ${img.substring(0, 80)}`);
+                return img;
+              }
+              // Construir URL completa desde la ruta relativa
+              const rutaLimpia = img.replace(/\\/g, '/').replace(/^\//, '');
+              const urlCompleta = `${API_BASE_URL}/${rutaLimpia}`;
+              console.log(`[EditarProductoModal.cargarDatos] Construyendo URL: ${img} -> ${urlCompleta}`);
+              return urlCompleta;
+            }).filter(img => img !== null);
+            
+            console.log(`[EditarProductoModal.cargarDatos] ✅ ${imagenesConUrl.length} imágenes adicionales cargadas como existentes`);
+            setImagenesAdicionales(imagenesConUrl);
+          } catch (e) {
+            console.error('Error al parsear imágenes adicionales:', e);
+            console.error('Valor que causó el error:', producto.imagenes_adicionales);
+          }
+        } else {
+          console.log(`[EditarProductoModal] No hay imágenes adicionales para este producto`);
+          setImagenesAdicionales([]);
+        }
+        
         setFormData({
           nombre: producto.nombre || '',
           descripcion: producto.descripcion || '',
           precio: producto.precio?.toString() || '',
           stock: producto.stock?.toString() || '',
-          stockMinimo: producto.stockMinimo?.toString() || '',
-          unidadMedida: producto.unidadMedida || '',
-          pesoAprox: producto.pesoAprox?.toString() || '',
+          stockMinimo: producto.stock_minimo?.toString() || '',
+          unidadMedida: producto.unidad_medida || 'kg',
+          id_categoria: producto.id_categoria || null,
+          id_ciudad_origen: producto.id_ciudad_origen || null,
+          disponible: producto.disponible !== false && producto.disponible !== 0,
+          id_usuario: producto.id_usuario || user?.id || null,
         });
+        
+        // Si tiene ciudad, cargar región y departamento
+        if (producto.id_ciudad_origen) {
+          await cargarUbicacionCompleta(producto.id_ciudad_origen);
+        }
       }
+      
+      // Cargar listas de selección
+      await Promise.all([
+        cargarCategorias(),
+        cargarDepartamentos(),
+      ]);
     } catch (error) {
+      console.error('Error al cargar datos:', error);
       Alert.alert('Error', 'No se pudo cargar el producto');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const cargarUbicacionCompleta = async (idCiudad) => {
+    try {
+      const ciudadesResponse = await ubicacionesService.getCiudades();
+      if (ciudadesResponse.success && ciudadesResponse.data) {
+        const ciudad = ciudadesResponse.data.find(c => c.id_ciudad === idCiudad);
+        if (ciudad) {
+          setDepartamentoSeleccionado(ciudad.id_departamento);
+          await cargarDepartamentos();
+          await cargarCiudades(ciudad.id_departamento);
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar ubicación completa:', error);
+    }
+  };
+
+  const cargarCategorias = async () => {
+    try {
+      const response = await categoriasService.getCategorias();
+      if (response.success && response.categorias) {
+        setCategorias(response.categorias);
+      }
+    } catch (error) {
+      console.error('Error al cargar categorías:', error);
+    }
+  };
+
+  const cargarDepartamentos = async () => {
+    try {
+      const response = await ubicacionesService.getDepartamentos();
+      if (response.success && response.data) {
+        setDepartamentos(response.data);
+        if (departamentoSeleccionado) {
+          await cargarCiudades(departamentoSeleccionado);
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar departamentos:', error);
+    }
+  };
+
+  const cargarCiudades = async (idDepartamento) => {
+    try {
+      const response = await ubicacionesService.getCiudades(idDepartamento);
+      if (response.success && response.data) {
+        setCiudades(response.data);
+      }
+    } catch (error) {
+      console.error('Error al cargar ciudades:', error);
+    }
+  };
+
+  const seleccionarImagen = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permisos', 'Se necesitan permisos para acceder a las imágenes');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setImagen(asset.uri);
+      
+      if (asset.base64) {
+        let mimeType = 'image/jpeg';
+        if (asset.type) {
+          mimeType = asset.type;
+        } else if (asset.uri.toLowerCase().includes('.png')) {
+          mimeType = 'image/png';
+        } else if (asset.uri.toLowerCase().includes('.gif')) {
+          mimeType = 'image/gif';
+        } else if (asset.uri.toLowerCase().includes('.webp')) {
+          mimeType = 'image/webp';
+        }
+        
+        const dataUri = `data:${mimeType};base64,${asset.base64}`;
+        setImagenBase64(dataUri);
+      } else {
+        try {
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          let mimeType = 'image/jpeg';
+          const uriLower = asset.uri.toLowerCase();
+          if (uriLower.includes('.png')) {
+            mimeType = 'image/png';
+          } else if (uriLower.includes('.gif')) {
+            mimeType = 'image/gif';
+          } else if (uriLower.includes('.webp')) {
+            mimeType = 'image/webp';
+          }
+          
+          setImagenBase64(`data:${mimeType};base64,${base64}`);
+        } catch (error) {
+          console.error('Error al leer imagen:', error);
+          Alert.alert('Error', 'No se pudo procesar la imagen');
+        }
+      }
+    }
+  };
+
+  const seleccionarImagenAdicional = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permisos', 'Se necesitan permisos para acceder a las imágenes');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true, // Permitir seleccionar múltiples imágenes
+      allowsEditing: false, // Desactivar edición para múltiples imágenes
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const nuevasImagenes = [];
+      const nuevasImagenesBase64 = [];
+      
+      for (const asset of result.assets) {
+        const nuevaImagen = asset.uri;
+        
+        let nuevaImagenBase64 = null;
+        if (asset.base64) {
+          let mimeType = 'image/jpeg';
+          if (asset.type) {
+            mimeType = asset.type;
+          } else if (asset.uri.toLowerCase().includes('.png')) {
+            mimeType = 'image/png';
+          } else if (asset.uri.toLowerCase().includes('.gif')) {
+            mimeType = 'image/gif';
+          } else if (asset.uri.toLowerCase().includes('.webp')) {
+            mimeType = 'image/webp';
+          }
+          nuevaImagenBase64 = `data:${mimeType};base64,${asset.base64}`;
+        } else {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            let mimeType = 'image/jpeg';
+            const uriLower = asset.uri.toLowerCase();
+            if (uriLower.includes('.png')) {
+              mimeType = 'image/png';
+            } else if (uriLower.includes('.gif')) {
+              mimeType = 'image/gif';
+            } else if (uriLower.includes('.webp')) {
+              mimeType = 'image/webp';
+            }
+            nuevaImagenBase64 = `data:${mimeType};base64,${base64}`;
+          } catch (error) {
+            console.error('Error al leer imagen:', error);
+            continue; // Continuar con la siguiente imagen si esta falla
+          }
+        }
+        
+        if (nuevaImagenBase64) {
+          nuevasImagenes.push({ id: Date.now() + Math.random(), uri: nuevaImagen });
+          nuevasImagenesBase64.push({ id: Date.now() + Math.random(), base64: nuevaImagenBase64 });
+        }
+      }
+      
+      if (nuevasImagenes.length > 0) {
+        console.log(`[EditarProductoModal.seleccionarImagenAdicional] Agregando ${nuevasImagenes.length} nuevas imágenes`);
+        console.log(`[EditarProductoModal.seleccionarImagenAdicional] Estado ANTES de agregar:`, {
+          existentes: imagenesAdicionales.length,
+          nuevas: imagenesAdicionalesNuevas.length,
+          nuevasBase64: imagenesAdicionalesBase64.length
+        });
+        
+        // Agregar las nuevas imágenes SIN modificar las existentes
+        setImagenesAdicionalesNuevas(prev => {
+          const nuevoEstado = [...prev, ...nuevasImagenes];
+          console.log(`[EditarProductoModal.seleccionarImagenAdicional] Nuevo estado de nuevas imágenes: ${nuevoEstado.length}`);
+          return nuevoEstado;
+        });
+        
+        setImagenesAdicionalesBase64(prev => {
+          const nuevoEstado = [...prev, ...nuevasImagenesBase64];
+          console.log(`[EditarProductoModal.seleccionarImagenAdicional] Nuevo estado de nuevas imágenes base64: ${nuevoEstado.length}`);
+          return nuevoEstado;
+        });
+        
+        console.log(`[EditarProductoModal.seleccionarImagenAdicional] Estado DESPUÉS de agregar:`, {
+          existentes: imagenesAdicionales.length, // No debería cambiar
+          nuevas: imagenesAdicionalesNuevas.length + nuevasImagenes.length,
+          nuevasBase64: imagenesAdicionalesBase64.length + nuevasImagenesBase64.length
+        });
+      }
+    }
+  };
+
+  const eliminarImagenAdicional = (index, esExistente, idUnico = null) => {
+    console.log(`[EditarProductoModal] ========== ELIMINANDO IMAGEN ADICIONAL ==========`);
+    console.log(`[EditarProductoModal] Parámetros:`, { index, esExistente, idUnico });
+    console.log(`[EditarProductoModal] Estado ANTES de eliminar:`, {
+      existentes: imagenesAdicionales.length,
+      existentesArray: imagenesAdicionales.map((img, i) => ({ indice: i, url: img?.substring(0, 80) })),
+      nuevas: imagenesAdicionalesNuevas.length,
+      nuevasBase64: imagenesAdicionalesBase64.length,
+    });
+    
+    if (esExistente) {
+      // Eliminar imagen existente (solo del estado local, se eliminará del servidor al guardar)
+      const imagenAEliminar = imagenesAdicionales[index];
+      console.log(`[EditarProductoModal] Imagen existente a eliminar (índice ${index}):`, imagenAEliminar?.substring(0, 80));
+      
+      // Crear una copia del array y eliminar el elemento en el índice especificado
+      const nuevasImagenes = [...imagenesAdicionales];
+      nuevasImagenes.splice(index, 1);
+      
+      console.log(`[EditarProductoModal] Estado DESPUÉS de eliminar existente:`, {
+        antes: imagenesAdicionales.length,
+        después: nuevasImagenes.length,
+        nuevasImagenes: nuevasImagenes.map((img, i) => ({ indice: i, url: img?.substring(0, 80) }))
+      });
+      
+      setImagenesAdicionales(nuevasImagenes);
+    } else {
+      // Eliminar imagen nueva (aún no guardada) usando ID único si está disponible
+      let nuevasImagenes, nuevasImagenesBase64;
+      
+      if (idUnico) {
+        // Usar ID único para eliminar (más seguro)
+        nuevasImagenes = imagenesAdicionalesNuevas.filter(img => img.id !== idUnico);
+        nuevasImagenesBase64 = imagenesAdicionalesBase64.filter(img => img.id !== idUnico);
+      } else {
+        // Fallback a índice si no hay ID único
+        nuevasImagenes = imagenesAdicionalesNuevas.filter((_, i) => i !== index);
+        nuevasImagenesBase64 = imagenesAdicionalesBase64.filter((_, i) => i !== index);
+      }
+      
+      console.log(`[EditarProductoModal] Antes de eliminar nueva: ${imagenesAdicionalesNuevas.length}, después: ${nuevasImagenes.length}`);
+      setImagenesAdicionalesNuevas(nuevasImagenes);
+      setImagenesAdicionalesBase64(nuevasImagenesBase64);
     }
   };
 
@@ -62,27 +411,257 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
     setSaving(true);
     try {
       const productoData = {
-        ...formData,
+        nombre: formData.nombre,
+        descripcion: formData.descripcion,
         precio: parseFloat(formData.precio),
         stock: parseInt(formData.stock),
-        stockMinimo: parseInt(formData.stockMinimo),
-        pesoAprox: parseFloat(formData.pesoAprox) || 0,
+        stock_minimo: parseInt(formData.stockMinimo) || 0,
+        unidad_medida: formData.unidadMedida || 'kg',
+        id_categoria: formData.id_categoria || null,
+        id_ciudad_origen: formData.id_ciudad_origen || null,
+        disponible: formData.disponible, // Enviar como boolean, no como número
+        id_usuario: formData.id_usuario || user?.id, // Incluir id_usuario
       };
 
+      // Incluir imagen principal si se seleccionó una nueva
+      if (imagenBase64) {
+        productoData.imagenData = imagenBase64;
+      }
+
+      // Incluir imágenes adicionales: las existentes que se mantienen + las nuevas
+      // Necesitamos enviar las rutas de las imágenes existentes que se mantienen
+      // y las nuevas imágenes en base64
+      console.log(`[EditarProductoModal.guardarCambios] Preparando imágenes adicionales para enviar:`, {
+        existentes: imagenesAdicionales.length,
+        nuevas: imagenesAdicionalesNuevas.length,
+        nuevasBase64: imagenesAdicionalesBase64.length,
+      });
+      
+      const imagenesParaEnviar = [];
+      
+      // Agregar las imágenes existentes que se mantienen (extraer la ruta relativa de la URL)
+      // Usar un Set para evitar duplicados
+      const rutasExistentes = new Set();
+      
+      console.log(`[EditarProductoModal.guardarCambios] Procesando ${imagenesAdicionales.length} imágenes existentes`);
+      console.log(`[EditarProductoModal.guardarCambios] API_BASE_URL: ${API_BASE_URL}`);
+      
+      imagenesAdicionales.forEach((imgUrl, idx) => {
+        if (!imgUrl) {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} es null/undefined, omitiendo`);
+          return;
+        }
+        
+        console.log(`[EditarProductoModal.guardarCambios] Procesando imagen existente ${idx + 1}:`, imgUrl.substring(0, 100));
+        
+        let rutaRelativa = null;
+        if (imgUrl.startsWith(API_BASE_URL)) {
+          // Extraer la ruta relativa desde la URL completa
+          rutaRelativa = imgUrl.replace(API_BASE_URL, '').replace(/^\/+/, '');
+          console.log(`[EditarProductoModal.guardarCambios] Ruta extraída desde URL completa: ${rutaRelativa}`);
+        } else if (!imgUrl.startsWith('http')) {
+          // Si ya es una ruta relativa, usarla directamente
+          rutaRelativa = imgUrl.replace(/^\/+/, '');
+          console.log(`[EditarProductoModal.guardarCambios] Ruta relativa directa: ${rutaRelativa}`);
+        } else {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} tiene formato desconocido (no coincide con API_BASE_URL ni es ruta relativa): ${imgUrl.substring(0, 100)}`);
+          // Intentar extraer la ruta de todas formas si contiene "uploads"
+          if (imgUrl.includes('uploads/')) {
+            const match = imgUrl.match(/uploads\/.+$/);
+            if (match) {
+              rutaRelativa = match[0];
+              console.log(`[EditarProductoModal.guardarCambios] Ruta extraída mediante regex: ${rutaRelativa}`);
+            }
+          }
+          if (!rutaRelativa) {
+            return; // No se pudo extraer la ruta
+          }
+        }
+        
+        if (rutaRelativa && !rutasExistentes.has(rutaRelativa)) {
+          rutasExistentes.add(rutaRelativa);
+          console.log(`[EditarProductoModal.guardarCambios] ✅ Agregando imagen existente ${idx + 1} a imagenesParaEnviar: ${rutaRelativa}`);
+          imagenesParaEnviar.push(rutaRelativa);
+        } else if (rutaRelativa) {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} duplicada, omitiendo: ${rutaRelativa}`);
+        } else {
+          console.error(`[EditarProductoModal.guardarCambios] ❌ No se pudo extraer ruta de imagen existente ${idx + 1}`);
+        }
+      });
+      
+      console.log(`[EditarProductoModal.guardarCambios] Total de imágenes existentes agregadas: ${imagenesParaEnviar.length}`);
+      console.log(`[EditarProductoModal.guardarCambios] Rutas de imágenes existentes que se enviarán:`, imagenesParaEnviar.map((ruta, idx) => ({ indice: idx, ruta: ruta.substring(0, 80) })));
+      
+      // Agregar las nuevas imágenes en base64 (solo las que aún no se han guardado)
+      // Usar un Set para evitar duplicados de base64
+      const base64Enviados = new Set();
+      
+      console.log(`[EditarProductoModal.guardarCambios] Procesando ${imagenesAdicionalesBase64.length} imágenes nuevas en base64`);
+      
+      imagenesAdicionalesBase64.forEach((imgObj, idx) => {
+        let base64Data = null;
+        
+        if (imgObj && imgObj.base64) {
+          base64Data = imgObj.base64;
+        } else if (typeof imgObj === 'string') {
+          // Compatibilidad: si es string directo (formato antiguo)
+          base64Data = imgObj;
+        } else {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen nueva ${idx + 1} tiene formato desconocido:`, typeof imgObj);
+          return;
+        }
+        
+        if (base64Data) {
+          // Crear un hash simple del base64 para detectar duplicados (usar primeros 100 caracteres)
+          const base64Hash = base64Data.substring(0, 100);
+          
+          if (!base64Enviados.has(base64Hash)) {
+            base64Enviados.add(base64Hash);
+            console.log(`[EditarProductoModal.guardarCambios] ✅ Agregando imagen nueva ${idx + 1} (base64, longitud: ${base64Data.length})`);
+            imagenesParaEnviar.push(base64Data);
+          } else {
+            console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen nueva ${idx + 1} duplicada, omitiendo`);
+          }
+        }
+      });
+      
+      console.log(`[EditarProductoModal.guardarCambios] ========== RESUMEN FINAL ANTES DE ENVIAR ==========`);
+      console.log(`[EditarProductoModal.guardarCambios] Estado de arrays:`, {
+        imagenesAdicionales: imagenesAdicionales.length,
+        imagenesAdicionalesNuevas: imagenesAdicionalesNuevas.length,
+        imagenesAdicionalesBase64: imagenesAdicionalesBase64.length,
+        imagenesParaEnviar: imagenesParaEnviar.length,
+        desgloseImagenesParaEnviar: {
+          rutasExistentes: imagenesParaEnviar.filter(img => typeof img === 'string' && !img.startsWith('data:image/')).length,
+          base64Nuevas: imagenesParaEnviar.filter(img => typeof img === 'string' && img.startsWith('data:image/')).length
+        }
+      });
+      console.log(`[EditarProductoModal.guardarCambios] Contenido completo de imagenesParaEnviar:`, imagenesParaEnviar.map((img, idx) => ({
+        indice: idx,
+        tipo: typeof img,
+        esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+        esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+        preview: typeof img === 'string' ? (img.startsWith('data:image/') ? 'base64...' : img.substring(0, 80)) : String(img)
+      })));
+      console.log(`[EditarProductoModal.guardarCambios] Contenido de imagenesParaEnviar:`, imagenesParaEnviar.map((img, idx) => ({
+        indice: idx,
+        tipo: typeof img,
+        esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+        esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+        preview: typeof img === 'string' ? (img.startsWith('data:image/') ? img.substring(0, 50) + '...' : img.substring(0, 80)) : String(img)
+      })));
+      
+      // SIEMPRE enviar el array explícitamente
+      if (imagenesParaEnviar.length > 0) {
+        productoData.imagenes_adicionales = imagenesParaEnviar;
+        console.log(`[EditarProductoModal.guardarCambios] ✅ Enviando ${imagenesParaEnviar.length} imágenes adicionales`);
+      } else {
+        // Si no hay imágenes, enviar array vacío para limpiar
+        productoData.imagenes_adicionales = [];
+        console.log(`[EditarProductoModal.guardarCambios] ⚠️ Enviando array vacío (no hay imágenes para mantener)`);
+      }
+
+      console.log(`[EditarProductoModal.guardarCambios] ========== ENVIANDO AL BACKEND ==========`);
+      console.log(`[EditarProductoModal.guardarCambios] Resumen final:`, {
+        imagenesExistentes: imagenesAdicionales.length,
+        imagenesNuevas: imagenesAdicionalesNuevas.length,
+        totalParaEnviar: imagenesParaEnviar.length,
+        desglose: {
+          rutasExistentes: imagenesParaEnviar.filter(img => !img.startsWith('data:image/')).length,
+          base64Nuevas: imagenesParaEnviar.filter(img => img.startsWith('data:image/')).length
+        }
+      });
+      
+      console.log(`[EditarProductoModal.guardarCambios] ========== ENVIANDO AL BACKEND ==========`);
+      console.log(`[EditarProductoModal.guardarCambios] Resumen final ANTES de enviar:`, {
+        imagenesExistentes: imagenesAdicionales.length,
+        imagenesNuevas: imagenesAdicionalesNuevas.length,
+        totalParaEnviar: imagenesParaEnviar.length,
+        desglose: {
+          rutasExistentes: imagenesParaEnviar.filter(img => typeof img === 'string' && !img.startsWith('data:image/')).length,
+          base64Nuevas: imagenesParaEnviar.filter(img => typeof img === 'string' && img.startsWith('data:image/')).length
+        },
+        contenidoCompleto: imagenesParaEnviar.map((img, idx) => ({
+          indice: idx,
+          tipo: typeof img,
+          esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+          esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+          preview: typeof img === 'string' ? (img.startsWith('data:image/') ? 'base64...' : img.substring(0, 80)) : String(img)
+        }))
+      });
+      
       const response = await productosService.actualizarProducto(productoId, productoData);
       if (response.success) {
+        console.log(`[EditarProductoModal.guardarCambios] ✅ Producto actualizado exitosamente`);
+        console.log(`[EditarProductoModal.guardarCambios] Recargando datos del producto para obtener todas las imágenes actualizadas`);
+        
+        // Recargar los datos del producto para obtener todas las imágenes (existentes + nuevas guardadas)
+        try {
+          const productoResponse = await productosService.getProductoDetallado(productoId);
+          if (productoResponse.success && productoResponse.data) {
+            const producto = productoResponse.data;
+            
+            console.log(`[EditarProductoModal.guardarCambios] Producto recargado, imagenes_adicionales:`, {
+              tipo: typeof producto.imagenes_adicionales,
+              valor: producto.imagenes_adicionales
+            });
+            
+            // Recargar imágenes adicionales desde el servidor
+            if (producto.imagenes_adicionales) {
+              let imagenesAdic = [];
+              try {
+                if (typeof producto.imagenes_adicionales === 'string') {
+                  imagenesAdic = JSON.parse(producto.imagenes_adicionales);
+                } else if (Array.isArray(producto.imagenes_adicionales)) {
+                  imagenesAdic = producto.imagenes_adicionales;
+                }
+                
+                console.log(`[EditarProductoModal.guardarCambios] Imágenes parseadas desde servidor:`, imagenesAdic);
+                
+                const imagenesConUrl = imagenesAdic.map(img => {
+                  if (!img) return null;
+                  if (img.startsWith('http')) return img;
+                  const rutaLimpia = img.replace(/\\/g, '/').replace(/^\//, '');
+                  const urlCompleta = `${API_BASE_URL}/${rutaLimpia}`;
+                  console.log(`[EditarProductoModal.guardarCambios] Construyendo URL: ${img} -> ${urlCompleta}`);
+                  return urlCompleta;
+                }).filter(img => img !== null);
+                
+                console.log(`[EditarProductoModal.guardarCambios] ✅ Recargadas ${imagenesConUrl.length} imágenes adicionales desde el servidor`);
+                setImagenesAdicionales(imagenesConUrl);
+              } catch (e) {
+                console.error('Error al recargar imágenes adicionales:', e);
+              }
+            } else {
+              console.log(`[EditarProductoModal.guardarCambios] No hay imágenes adicionales en el producto recargado`);
+              setImagenesAdicionales([]);
+            }
+          }
+        } catch (reloadError) {
+          console.error('Error al recargar producto después de guardar:', reloadError);
+        }
+        
+        // Limpiar las imágenes nuevas ya que ahora están guardadas en el servidor
+        setImagenesAdicionalesNuevas([]);
+        setImagenesAdicionalesBase64([]);
+        
         Alert.alert('Éxito', 'Producto actualizado correctamente');
         onSuccess && onSuccess();
         onClose();
       } else {
+        console.error(`[EditarProductoModal.guardarCambios] ❌ Error al actualizar producto:`, response);
         Alert.alert('Error', response.message || 'No se pudo actualizar el producto');
       }
     } catch (error) {
+      console.error('Error al actualizar producto:', error);
       Alert.alert('Error', 'Error al actualizar el producto');
     } finally {
       setSaving(false);
     }
   };
+
+  const categoriaSeleccionada = categorias.find(c => c.id_categoria === formData.id_categoria);
+  const ciudadSeleccionada = ciudades.find(c => c.id_ciudad === formData.id_ciudad_origen);
 
   if (loading) {
     return (
@@ -118,6 +697,7 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               style={styles.input}
               value={formData.nombre}
               onChangeText={(text) => setFormData({ ...formData, nombre: text })}
+              placeholder="Ej: Tomate rojo"
             />
 
             <Text style={styles.label}>Descripción *</Text>
@@ -125,6 +705,7 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               style={[styles.input, styles.textArea]}
               value={formData.descripcion}
               onChangeText={(text) => setFormData({ ...formData, descripcion: text })}
+              placeholder="Describe tu producto"
               multiline
               numberOfLines={4}
             />
@@ -134,6 +715,7 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               style={styles.input}
               value={formData.precio}
               onChangeText={(text) => setFormData({ ...formData, precio: text })}
+              placeholder="0"
               keyboardType="numeric"
             />
 
@@ -142,6 +724,7 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               style={styles.input}
               value={formData.stock}
               onChangeText={(text) => setFormData({ ...formData, stock: text })}
+              placeholder="0"
               keyboardType="numeric"
             />
 
@@ -150,6 +733,7 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               style={styles.input}
               value={formData.stockMinimo}
               onChangeText={(text) => setFormData({ ...formData, stockMinimo: text })}
+              placeholder="10"
               keyboardType="numeric"
             />
 
@@ -158,7 +742,201 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               style={styles.input}
               value={formData.unidadMedida}
               onChangeText={(text) => setFormData({ ...formData, unidadMedida: text })}
+              placeholder="kg, litros, unidades..."
             />
+
+            <Text style={styles.label}>Categoría</Text>
+            <TouchableOpacity
+              style={styles.selectorButton}
+              onPress={() => setMostrarSelectorCategoria(!mostrarSelectorCategoria)}
+            >
+              <Text style={styles.selectorText}>
+                {categoriaSeleccionada ? categoriaSeleccionada.nombre : 'Seleccionar categoría'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </TouchableOpacity>
+            {mostrarSelectorCategoria && (
+              <View style={styles.selectorListContainer}>
+                <ScrollView 
+                  style={styles.selectorList}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <TouchableOpacity
+                    style={styles.selectorItem}
+                    onPress={() => {
+                      setFormData({ ...formData, id_categoria: null });
+                      setMostrarSelectorCategoria(false);
+                    }}
+                  >
+                    <Text style={styles.selectorItemText}>Sin categoría</Text>
+                  </TouchableOpacity>
+                  {categorias.map((cat) => (
+                    <TouchableOpacity
+                      key={cat.id_categoria}
+                      style={styles.selectorItem}
+                      onPress={() => {
+                        setFormData({ ...formData, id_categoria: cat.id_categoria });
+                        setMostrarSelectorCategoria(false);
+                      }}
+                    >
+                      <Text style={styles.selectorItemText} numberOfLines={1}>{cat.nombre}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            <Text style={styles.label}>Ciudad de Origen</Text>
+            <Text style={styles.label}>Departamento</Text>
+            <TouchableOpacity
+              style={styles.selectorButton}
+              onPress={() => {
+                setMostrarSelectorDepartamento(!mostrarSelectorDepartamento);
+                if (!mostrarSelectorDepartamento) {
+                  cargarDepartamentos();
+                }
+              }}
+            >
+              <Text style={styles.selectorText}>
+                {departamentoSeleccionado
+                  ? departamentos.find(d => d.id_departamento === departamentoSeleccionado)?.nombre || 'Seleccionar departamento'
+                  : 'Seleccionar departamento'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </TouchableOpacity>
+            {mostrarSelectorDepartamento && (
+              <View style={styles.selectorListContainer}>
+                <ScrollView 
+                  style={styles.selectorList}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                >
+                  {departamentos.map((depto) => (
+                    <TouchableOpacity
+                      key={depto.id_departamento}
+                      style={styles.selectorItem}
+                      onPress={async () => {
+                        setDepartamentoSeleccionado(depto.id_departamento);
+                        setMostrarSelectorDepartamento(false);
+                        await cargarCiudades(depto.id_departamento);
+                        setMostrarSelectorCiudad(true);
+                      }}
+                    >
+                      <Text style={styles.selectorItemText} numberOfLines={1}>{depto.nombre}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {departamentoSeleccionado && (
+              <>
+                <Text style={styles.label}>Ciudad</Text>
+                <TouchableOpacity
+                  style={styles.selectorButton}
+                  onPress={() => setMostrarSelectorCiudad(!mostrarSelectorCiudad)}
+                >
+                  <Text style={styles.selectorText}>
+                    {ciudadSeleccionada ? ciudadSeleccionada.nombre : 'Seleccionar ciudad'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color="#666" />
+                </TouchableOpacity>
+                {mostrarSelectorCiudad && (
+                  <View style={styles.selectorListContainer}>
+                    <ScrollView 
+                      style={styles.selectorList}
+                      nestedScrollEnabled={true}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      {ciudades.map((ciudad) => (
+                        <TouchableOpacity
+                          key={ciudad.id_ciudad}
+                          style={styles.selectorItem}
+                          onPress={() => {
+                            setFormData({ ...formData, id_ciudad_origen: ciudad.id_ciudad });
+                            setMostrarSelectorCiudad(false);
+                          }}
+                        >
+                          <Text style={styles.selectorItemText} numberOfLines={1}>{ciudad.nombre}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </>
+            )}
+
+            <View style={styles.switchContainer}>
+              <Text style={styles.label}>Disponible</Text>
+              <Switch
+                value={formData.disponible}
+                onValueChange={(value) => setFormData({ ...formData, disponible: value })}
+                trackColor={{ false: '#d32f2f', true: '#2e7d32' }}
+                thumbColor={formData.disponible ? '#fff' : '#fff'}
+              />
+            </View>
+
+            <Text style={styles.label}>Imagen Principal</Text>
+            <TouchableOpacity style={styles.imageButton} onPress={seleccionarImagen}>
+              {imagen ? (
+                <Image source={{ uri: imagen }} style={styles.imagePreview} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Ionicons name="image-outline" size={40} color="#ccc" />
+                  <Text style={styles.imageButtonText}>Cambiar Imagen</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.label}>Imágenes Adicionales</Text>
+            <View style={styles.imagenesAdicionalesContainer}>
+              {/* Mostrar imágenes existentes */}
+              {imagenesAdicionales.map((img, index) => {
+                // Usar la URL como key para evitar problemas con índices
+                const imgKey = img ? `existente-${img.substring(img.length - 50)}` : `existente-${index}`;
+                return (
+                  <View key={imgKey} style={styles.imagenAdicionalItem}>
+                    <Image source={{ uri: img }} style={styles.imagenAdicionalPreview} />
+                    <TouchableOpacity
+                      style={styles.eliminarImagenButton}
+                      onPress={() => {
+                        console.log(`[EditarProductoModal] Eliminando imagen existente en índice ${index}`);
+                        eliminarImagenAdicional(index, true);
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#d32f2f" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              
+              {/* Mostrar imágenes nuevas */}
+              {imagenesAdicionalesNuevas.map((imgObj, index) => {
+                const imgUri = typeof imgObj === 'object' && imgObj.uri ? imgObj.uri : imgObj;
+                const imgId = typeof imgObj === 'object' && imgObj.id ? imgObj.id : null;
+                return (
+                  <View key={`nueva-${imgId || index}`} style={styles.imagenAdicionalItem}>
+                    <Image source={{ uri: imgUri }} style={styles.imagenAdicionalPreview} />
+                    <TouchableOpacity
+                      style={styles.eliminarImagenButton}
+                      onPress={() => eliminarImagenAdicional(index, false, imgId)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#d32f2f" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              
+              {/* Botón para agregar más imágenes */}
+              <TouchableOpacity
+                style={styles.agregarImagenButton}
+                onPress={seleccionarImagenAdicional}
+              >
+                <Ionicons name="add-circle" size={40} color="#2e7d32" />
+                <Text style={styles.agregarImagenText}>Agregar Imagen</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={[styles.submitButton, saving && styles.submitButtonDisabled]}
@@ -227,6 +1005,122 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
   },
+  selectorButton: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectorText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  selectorListContainer: {
+    marginTop: 5,
+    maxHeight: 200,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  selectorList: {
+    maxHeight: 200,
+  },
+  selectorItem: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  selectorItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  imageButton: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    minHeight: 150,
+  },
+  imagePreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+  },
+  imagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageButtonText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 10,
+  },
+  imagenesAdicionalesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 10,
+  },
+  imagenAdicionalItem: {
+    position: 'relative',
+    width: 100,
+    height: 100,
+    marginBottom: 10,
+    marginRight: 10,
+  },
+  imagenAdicionalPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+    backgroundColor: '#f0f0f0',
+  },
+  eliminarImagenButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  agregarImagenButton: {
+    width: 100,
+    height: 100,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#2e7d32',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  agregarImagenText: {
+    fontSize: 12,
+    color: '#2e7d32',
+    marginTop: 5,
+    fontWeight: '600',
+  },
   submitButton: {
     backgroundColor: '#2e7d32',
     borderRadius: 10,
@@ -244,4 +1138,3 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
-
