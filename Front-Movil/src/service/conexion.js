@@ -6,7 +6,7 @@
 // Busca "Dirección IPv4"
 const LOCAL_IP = '172.20.10.7';
 
-// Puerto donde corre el backend Deno
+// Puerto donde corre el backend Denos
 const API_PORT = 8000;
 
 // Lista de IPs alternativas para intentar (fallback)
