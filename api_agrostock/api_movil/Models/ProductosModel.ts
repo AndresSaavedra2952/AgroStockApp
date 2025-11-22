@@ -343,7 +343,7 @@ export class ProductosModel {
         }
     }
 
-    public async EditarProducto(imagenData?: string): Promise<{ success: boolean; message: string }> {
+    public async EditarProducto(imagenData?: string, imagenesAdicionales?: string[]): Promise<{ success: boolean; message: string }> {
         try {
             if (!this._objProducto || !this._objProducto.id_producto) {
                 throw new Error("No se proporciono un objeto de producto valido.");
@@ -374,8 +374,31 @@ export class ProductosModel {
                 }
             }
 
-            const result = await conexion.execute(`UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, disponible = ? WHERE id_producto = ?`,
-                [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, disponible !== false ? 1 : 0, id_producto]
+            // Procesar imágenes adicionales
+            let imagenesAdicionalesJson: string | null = null;
+            if (imagenesAdicionales && imagenesAdicionales.length > 0) {
+                try {
+                    const rutasImagenesAdicionales: string[] = [];
+                    for (const imgData of imagenesAdicionales) {
+                        if (typeof imgData === 'string' && imgData.trim().length > 0) {
+                            try {
+                                const rutaImg = await this.guardarImagen(id_producto, imgData);
+                                rutasImagenesAdicionales.push(rutaImg);
+                            } catch (imgError) {
+                                console.error("Error al guardar imagen adicional:", imgError);
+                            }
+                        }
+                    }
+                    if (rutasImagenesAdicionales.length > 0) {
+                        imagenesAdicionalesJson = JSON.stringify(rutasImagenesAdicionales);
+                    }
+                } catch (error) {
+                    console.error("Error al procesar imágenes adicionales:", error);
+                }
+            }
+
+            const result = await conexion.execute(`UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, imagenes_adicionales = ?, disponible = ? WHERE id_producto = ?`,
+                [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, imagenesAdicionalesJson, disponible !== false ? 1 : 0, id_producto]
             );
 
             // Si el precio cambió, registrar en historial de precios

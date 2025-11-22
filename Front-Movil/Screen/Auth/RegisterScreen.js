@@ -51,7 +51,7 @@ export default function RegisterScreen({ navigation }) {
   const [departamentos, setDepartamentos] = useState([]);
   const [ciudades, setCiudades] = useState([]);
   const [loading, setLoading] = useState(false);
-  const { register } = useAuth();
+  const { register, login } = useAuth();
 
   useEffect(() => {
     cargarDepartamentos();
@@ -174,15 +174,30 @@ export default function RegisterScreen({ navigation }) {
 
       const result = await register(registerData);
       
-      if (result.success && result.usuario) {
-        // Registro exitoso
-        const mensaje = formData.rol === 'productor' 
-          ? 'Usuario y perfil de productor registrados correctamente. Por favor inicia sesión.'
-          : 'Usuario registrado correctamente. Por favor inicia sesión.';
+      if (result.success) {
+        // Registro exitoso - iniciar sesión automáticamente
+        const email = formData.email.trim().toLowerCase();
+        const password = formData.password;
         
-        Alert.alert('Éxito', mensaje, [
-          { text: 'OK', onPress: () => navigation.navigate('Login') },
-        ]);
+        console.log('✅ Registro exitoso, iniciando sesión automáticamente...');
+        
+        const loginResult = await login(email, password);
+        
+        if (loginResult.success) {
+          // Login exitoso - la navegación automática redirigirá al panel correspondiente
+          // No mostrar Alert para no bloquear la navegación automática
+          console.log('✅ Login automático exitoso, redirigiendo al panel...');
+        } else {
+          // Si el login automático falla, redirigir al login manual
+          console.error('❌ Error en login automático:', loginResult.message);
+          Alert.alert(
+            'Registro exitoso', 
+            'Tu cuenta ha sido creada correctamente. Por favor inicia sesión.',
+            [
+              { text: 'OK', onPress: () => navigation.navigate('Login') },
+            ]
+          );
+        }
       } else {
         Alert.alert('Error', result.message || 'Error al registrar usuario');
       }

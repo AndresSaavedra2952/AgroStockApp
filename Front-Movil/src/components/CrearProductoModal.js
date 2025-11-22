@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import productosService from '../service/ProductosService';
+import categoriasService from '../service/CategoriasService';
 import ubicacionesService from '../service/UbicacionesService';
 
 export default function CrearProductoModal({ visible, onClose, onSuccess }) {
@@ -27,10 +29,30 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
     id_ciudad_origen: user?.id_ciudad || null,
     unidadMedida: 'kg',
     pesoAprox: '',
+    id_categoria: null,
   });
   const [imagen, setImagen] = useState(null);
   const [imagenBase64, setImagenBase64] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [categorias, setCategorias] = useState([]);
+  const [mostrarSelectorCategoria, setMostrarSelectorCategoria] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      cargarCategorias();
+    }
+  }, [visible]);
+
+  const cargarCategorias = async () => {
+    try {
+      const response = await categoriasService.getCategorias();
+      if (response.success && response.categorias) {
+        setCategorias(response.categorias);
+      }
+    } catch (error) {
+      console.error('Error al cargar categorías:', error);
+    }
+  };
 
   const seleccionarImagen = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -148,6 +170,7 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
         stock_minimo: parseInt(formData.stockMinimo),
         id_usuario: user.id,
         id_ciudad_origen: formData.id_ciudad_origen,
+        id_categoria: formData.id_categoria || null,
         unidad_medida: formData.unidadMedida || 'kg',
         disponible: true,
         imagenData: imagenBase64, // SIEMPRE incluir imagenData si existe
@@ -233,6 +256,7 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
         stock_minimo: parseInt(formData.stockMinimo),
         id_usuario: user.id,
         id_ciudad_origen: formData.id_ciudad_origen,
+        id_categoria: formData.id_categoria || null,
         unidad_medida: formData.unidadMedida || 'kg',
         disponible: true,
       };
@@ -264,6 +288,7 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
       id_ciudad_origen: user?.id_ciudad || null,
       unidadMedida: 'kg',
       pesoAprox: '',
+      id_categoria: null,
     });
     setImagen(null);
     setImagenBase64(null);
@@ -338,6 +363,50 @@ export default function CrearProductoModal({ visible, onClose, onSuccess }) {
               onChangeText={(text) => setFormData({ ...formData, unidadMedida: text })}
               placeholder="kg, litros, unidades..."
             />
+
+            <Text style={styles.label}>Categoría</Text>
+            <TouchableOpacity
+              style={styles.selectorButton}
+              onPress={() => setMostrarSelectorCategoria(!mostrarSelectorCategoria)}
+            >
+              <Text style={styles.selectorText}>
+                {formData.id_categoria
+                  ? categorias.find(c => c.id_categoria === formData.id_categoria)?.nombre || 'Seleccionar categoría'
+                  : 'Seleccionar categoría'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </TouchableOpacity>
+            {mostrarSelectorCategoria && (
+              <View style={styles.selectorListContainer}>
+                <ScrollView 
+                  style={styles.selectorList}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <TouchableOpacity
+                    style={styles.selectorItem}
+                    onPress={() => {
+                      setFormData({ ...formData, id_categoria: null });
+                      setMostrarSelectorCategoria(false);
+                    }}
+                  >
+                    <Text style={styles.selectorItemText}>Sin categoría</Text>
+                  </TouchableOpacity>
+                  {categorias.map((cat) => (
+                    <TouchableOpacity
+                      key={cat.id_categoria}
+                      style={styles.selectorItem}
+                      onPress={() => {
+                        setFormData({ ...formData, id_categoria: cat.id_categoria });
+                        setMostrarSelectorCategoria(false);
+                      }}
+                    >
+                      <Text style={styles.selectorItemText} numberOfLines={1}>{cat.nombre}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             <Text style={styles.label}>Peso Aproximado</Text>
             <TextInput
@@ -459,6 +528,41 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  selectorButton: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectorText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  selectorListContainer: {
+    marginTop: 5,
+    maxHeight: 200,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  selectorList: {
+    maxHeight: 200,
+  },
+  selectorItem: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  selectorItemText: {
+    fontSize: 16,
+    color: '#333',
   },
 });
 

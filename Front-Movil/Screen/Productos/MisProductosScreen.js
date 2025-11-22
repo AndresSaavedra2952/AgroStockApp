@@ -11,6 +11,7 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/context/AuthContext';
 import productosService from '../../src/service/ProductosService';
 import { Ionicons } from '@expo/vector-icons';
@@ -230,9 +231,10 @@ export default function MisProductosScreen({ navigation }) {
   const productosAgotados = productos.filter(p => p.stock === 0 || p.stock === null).length;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header con estadísticas */}
       <View style={styles.header}>
+        <Text style={styles.headerTitle}>Mis Productos</Text>
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{productos.length}</Text>
@@ -339,7 +341,7 @@ export default function MisProductosScreen({ navigation }) {
         productoId={productoSeleccionado}
         onSuccess={cargarProductos}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -350,27 +352,47 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#fff',
-    paddingVertical: 15,
-    paddingHorizontal: 10,
+    paddingTop: 30,
+    paddingBottom: 25,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2e7d32',
+    marginBottom: 20,
+    textAlign: 'center',
   },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'center',
   },
   statCard: {
     alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 5,
   },
   statValue: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#2e7d32',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
+    fontWeight: '500',
   },
   searchContainer: {
     flexDirection: 'row',

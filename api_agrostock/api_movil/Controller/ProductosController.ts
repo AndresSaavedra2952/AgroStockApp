@@ -607,8 +607,9 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
 
     const body = await ctx.request.body.json();
     
-    // Extraer imagenData ANTES de validar con Zod (similar a postProducto)
+    // Extraer imagenData e imagenes_adicionales ANTES de validar con Zod (similar a postProducto)
     const imagenDataRaw = body.imagenData;
+    const imagenesAdicionalesRaw = body.imagenes_adicionales;
     
     // Log para debugging
     console.log(`[ProductosController.putProducto] Body recibido:`, {
@@ -619,6 +620,9 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
         (typeof imagenDataRaw === 'string' ? `${imagenDataRaw.substring(0, 100)}... (${imagenDataRaw.length} chars)` : `Tipo: ${typeof imagenDataRaw}`) 
         : 'null/undefined',
       tipoImagenData: typeof imagenDataRaw,
+      imagenesAdicionales: imagenesAdicionalesRaw ? 
+        (Array.isArray(imagenesAdicionalesRaw) ? `Array con ${imagenesAdicionalesRaw.length} elementos` : `Tipo: ${typeof imagenesAdicionalesRaw}`)
+        : 'null/undefined',
     });
     
     const bodyWithId = { ...body, id_producto };
@@ -635,6 +639,22 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
       }
     } else {
       console.log(`[ProductosController.putProducto] ⚠️ No se recibió imagenData`);
+    }
+
+    // Validar y normalizar imagenes_adicionales manualmente
+    let imagenesAdicionales: string[] | undefined = undefined;
+    if (imagenesAdicionalesRaw !== null && imagenesAdicionalesRaw !== undefined) {
+      if (Array.isArray(imagenesAdicionalesRaw) && imagenesAdicionalesRaw.length > 0) {
+        // Filtrar solo strings válidos
+        imagenesAdicionales = imagenesAdicionalesRaw.filter((img: any) => 
+          typeof img === 'string' && img.trim().length > 0
+        );
+        console.log(`[ProductosController.putProducto] ✅ imagenes_adicionales validado: ${imagenesAdicionales.length} imágenes`);
+      } else {
+        console.log(`[ProductosController.putProducto] ⚠️ imagenes_adicionales ignorado (no es array válido)`);
+      }
+    } else {
+      console.log(`[ProductosController.putProducto] ⚠️ No se recibió imagenes_adicionales`);
     }
 
     const { ...productoData } = validated;
@@ -678,7 +698,13 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
       console.log(`[ProductosController.putProducto] ⚠️ No se recibió imagenData`);
     }
     
-    const result = await objProductos.EditarProducto(imagenDataNormalizada);
+    if (imagenesAdicionales) {
+      console.log(`[ProductosController.putProducto] ✅ imagenes_adicionales recibidas: ${imagenesAdicionales.length} imágenes`);
+    } else {
+      console.log(`[ProductosController.putProducto] ⚠️ No se recibieron imagenes_adicionales`);
+    }
+    
+    const result = await objProductos.EditarProducto(imagenDataNormalizada, imagenesAdicionales);
 
     ctx.response.status = result.success ? 200 : 404;
     ctx.response.body = {
@@ -986,21 +1012,18 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
     
     let ciudad_origen = null;
     let departamento_origen = null;
-    let region_origen = null;
     
     if (productoData.id_ciudad_origen) {
       try {
         const ciudadData = await conexion.query(`
-          SELECT c.nombre as ciudad, d.nombre as departamento, r.nombre as region
+          SELECT c.nombre as ciudad, d.nombre as departamento
           FROM ciudades c
           LEFT JOIN departamentos d ON c.id_departamento = d.id_departamento
-          LEFT JOIN regiones r ON d.id_region = r.id_region
           WHERE c.id_ciudad = ?
         `, [productoData.id_ciudad_origen]);
         if (ciudadData.length > 0) {
           ciudad_origen = ciudadData[0].ciudad;
           departamento_origen = ciudadData[0].departamento;
-          region_origen = ciudadData[0].region;
         }
       } catch (error) {
         console.log(`[ProductosController.getProductoDetallado] Error obteniendo datos de ubicación:`, error);
@@ -1057,7 +1080,6 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
       direccion_productor,
       ciudad_origen,
       departamento_origen,
-      region_origen,
       categoria_nombre,
       imagenUrl: imagenPrincipal 
         ? objProductos.construirUrlImagen(imagenPrincipal, baseUrl)

@@ -37,24 +37,110 @@ export class MensajesModel {
 
       const { id_remitente, id_destinatario, id_producto, asunto, mensaje, tipo_mensaje } = this._objMensaje;
 
+      console.log("📝 [MensajesModel] Creando mensaje con datos:", {
+        id_remitente,
+        id_destinatario,
+        id_producto,
+        asunto,
+        mensaje_length: mensaje?.length,
+        tipo_mensaje,
+      });
+
       if (!id_remitente || !id_destinatario || !asunto || !mensaje) {
-        throw new Error("Faltan campos requeridos para crear el mensaje.");
+        const errorMsg = `Faltan campos requeridos: id_remitente=${!!id_remitente}, id_destinatario=${!!id_destinatario}, asunto=${!!asunto}, mensaje=${!!mensaje}`;
+        console.error("❌ [MensajesModel]", errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      // Validar que id_remitente no sea 0 (solo permitido para usuarios anónimos)
+      if (id_remitente === 0) {
+        console.warn("⚠️ [MensajesModel] id_remitente es 0 (usuario anónimo)");
       }
 
       await conexion.execute("START TRANSACTION");
 
+      // Asegurar que los IDs sean números
+      const idRemitenteNum = Number(id_remitente);
+      const idDestinatarioNum = Number(id_destinatario);
+      
+      console.log("💾 [MensajesModel] Valores para INSERT:", {
+        id_remitente: idRemitenteNum,
+        id_destinatario: idDestinatarioNum,
+        id_producto: id_producto ? Number(id_producto) : null,
+        asunto,
+        mensaje_length: mensaje.length,
+        tipo_mensaje,
+      });
+      
       const result = await conexion.execute(
         "INSERT INTO mensajes (id_remitente, id_destinatario, id_producto, asunto, mensaje, tipo_mensaje) VALUES (?, ?, ?, ?, ?, ?)",
-        [id_remitente, id_destinatario, id_producto || null, asunto, mensaje, tipo_mensaje || 'consulta']
+        [idRemitenteNum, idDestinatarioNum, id_producto ? Number(id_producto) : null, asunto, mensaje, tipo_mensaje || 'consulta']
       );
 
-      if (result && result.affectedRows && result.affectedRows > 0) {
-        const [nuevoMensaje] = await conexion.query("SELECT * FROM mensajes ORDER BY id_mensaje DESC LIMIT 1");
-        
-        // Actualizar estadísticas del destinatario
-        await this.actualizarEstadisticasDestinatario(id_destinatario);
+      console.log("💾 [MensajesModel] Resultado del INSERT:", {
+        affectedRows: result?.affectedRows,
+        insertId: result?.insertId,
+      });
 
-        await conexion.execute("COMMIT");
+      if (result && result.affectedRows && result.affectedRows > 0) {
+        const insertId = result.insertId;
+        console.log("✅ [MensajesModel] INSERT exitoso, insertId:", insertId);
+        
+        // Obtener el mensaje recién creado usando el insertId
+        const [nuevoMensaje] = await conexion.query(
+          "SELECT * FROM mensajes WHERE id_mensaje = ?",
+          [insertId]
+        );
+        
+        if (!nuevoMensaje) {
+          throw new Error("No se pudo recuperar el mensaje recién creado");
+        }
+        
+        console.log("✅ [MensajesModel] Mensaje creado exitosamente:", {
+          id_mensaje: nuevoMensaje.id_mensaje,
+          id_remitente: nuevoMensaje.id_remitente,
+          id_destinatario: nuevoMensaje.id_destinatario,
+          asunto: nuevoMensaje.asunto,
+        });
+        
+        // Verificar que el mensaje realmente se guardó
+        const verificarMensaje = await conexion.query(
+          "SELECT COUNT(*) as total FROM mensajes WHERE id_mensaje = ?",
+          [insertId]
+        );
+        console.log("🔍 [MensajesModel] Verificación: mensaje existe en BD:", verificarMensaje[0]?.total > 0);
+        
+        // Actualizar estadísticas del destinatario (no crítico)
+        try {
+          await this.actualizarEstadisticasDestinatario(idDestinatarioNum);
+          console.log("✅ [MensajesModel] Estadísticas actualizadas");
+        } catch (statsError) {
+          console.warn("⚠️ [MensajesModel] Error al actualizar estadísticas (no crítico):", statsError);
+          // No fallar el mensaje si las estadísticas fallan
+        }
+
+        // Hacer COMMIT de la transacción
+        try {
+          await conexion.execute("COMMIT");
+          console.log("✅ [MensajesModel] Transacción confirmada (COMMIT)");
+          
+          // Verificar una vez más que el mensaje existe después del COMMIT
+          const mensajeDespuesCommit = await conexion.query(
+            "SELECT * FROM mensajes WHERE id_mensaje = ?",
+            [insertId]
+          );
+          
+          if (mensajeDespuesCommit.length === 0) {
+            console.error("❌ [MensajesModel] CRÍTICO: Mensaje no existe después del COMMIT!");
+            throw new Error("El mensaje no se guardó correctamente después del COMMIT");
+          }
+          
+          console.log("✅ [MensajesModel] Mensaje verificado después del COMMIT:", mensajeDespuesCommit[0]);
+        } catch (commitError) {
+          console.error("❌ [MensajesModel] Error en COMMIT:", commitError);
+          await conexion.execute("ROLLBACK");
+          throw commitError;
+        }
 
         return {
           success: true,
@@ -62,10 +148,13 @@ export class MensajesModel {
           mensaje: nuevoMensaje as MensajeData,
         };
       } else {
-        throw new Error("No se pudo crear el mensaje.");
+        console.error("❌ [MensajesModel] INSERT falló - no se insertaron filas");
+        console.error("❌ [MensajesModel] Resultado del INSERT:", result);
+        throw new Error("No se pudo crear el mensaje. No se insertaron filas.");
       }
     } catch (error) {
       await conexion.execute("ROLLBACK");
+      console.error("❌ [MensajesModel] Error al crear mensaje:", error);
       return {
         success: false,
         message: error instanceof Error ? error.message : "Error interno del servidor",
@@ -76,6 +165,18 @@ export class MensajesModel {
   // 📌 Obtener mensajes recibidos por usuario
   public async ObtenerMensajesRecibidos(id_usuario: number): Promise<MensajeData[]> {
     try {
+      // Asegurar que id_usuario sea un número
+      const userId = Number(id_usuario);
+      console.log(`🔍 [MensajesModel] Buscando mensajes recibidos para usuario: ${userId} (tipo: ${typeof userId})`);
+      
+      // Primero verificar todos los mensajes en la BD
+      const todosMensajes = await conexion.query(
+        "SELECT id_mensaje, id_remitente, id_destinatario, TYPEOF(id_destinatario) as tipo_dest, asunto, fecha_envio FROM mensajes ORDER BY id_mensaje DESC LIMIT 20"
+      );
+      console.log(`🔍 [MensajesModel] Total de mensajes en BD: ${todosMensajes.length}`);
+      console.log("🔍 [MensajesModel] Últimos mensajes en BD:", JSON.stringify(todosMensajes, null, 2));
+      
+      // Query principal - usar comparación directa con número
       const result = await conexion.query(`
         SELECT m.*, 
                u_remitente.nombre as nombre_remitente,
@@ -86,11 +187,52 @@ export class MensajesModel {
         LEFT JOIN productos p ON m.id_producto = p.id_producto
         WHERE m.id_destinatario = ?
         ORDER BY m.fecha_envio DESC
-      `, [id_usuario]);
+      `, [userId]);
+      
+      console.log(`✅ [MensajesModel] Query principal: ${result.length} mensajes encontrados para usuario ${userId}`);
+      
+      // Verificar directamente con COUNT para debug
+      const countDirecto = await conexion.query(
+        "SELECT COUNT(*) as total FROM mensajes WHERE id_destinatario = ?",
+        [userId]
+      );
+      const totalCount = countDirecto[0]?.total || 0;
+      console.log(`🔍 [MensajesModel] COUNT directo para id_destinatario=${userId}: ${totalCount}`);
+      
+      // Si hay diferencia, investigar
+      if (totalCount > 0 && result.length === 0) {
+        console.error(`❌ [MensajesModel] PROBLEMA: Hay ${totalCount} mensajes en BD pero la query no los encuentra!`);
+        // Intentar obtener sin JOINs para ver si el problema es en los JOINs
+        const mensajesSinJoin = await conexion.query(
+          "SELECT * FROM mensajes WHERE id_destinatario = ? ORDER BY fecha_envio DESC",
+          [userId]
+        );
+        console.log(`🔍 [MensajesModel] Mensajes sin JOINs: ${mensajesSinJoin.length}`);
+        if (mensajesSinJoin.length > 0) {
+          // Si encuentra sin JOINs, usar esos y hacer JOINs manualmente
+          return mensajesSinJoin.map((m: any) => ({
+            ...m,
+            nombre_remitente: null,
+            email_remitente: null,
+            nombre_producto: null,
+          })) as MensajeData[];
+        }
+      }
+      
+      if (result.length > 0) {
+        console.log("📋 [MensajesModel] Primeros mensajes encontrados:", result.slice(0, 3).map((m: any) => ({
+          id_mensaje: m.id_mensaje,
+          id_remitente: m.id_remitente,
+          id_destinatario: m.id_destinatario,
+          nombre_remitente: m.nombre_remitente,
+          asunto: m.asunto,
+          leido: m.leido,
+        })));
+      }
       
       return result as MensajeData[];
     } catch (error) {
-      console.error("Error al obtener mensajes recibidos:", error);
+      console.error("❌ [MensajesModel] Error al obtener mensajes recibidos:", error);
       return [];
     }
   }

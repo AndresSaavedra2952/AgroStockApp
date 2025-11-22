@@ -12,6 +12,7 @@ router.put("/mensajes/:id_mensaje/leer", AuthMiddleware(['consumidor', 'producto
 router.delete("/mensajes/:id_mensaje", AuthMiddleware(['consumidor', 'productor']), MensajesController.EliminarMensaje);
 router.get("/mensajes/no-leidos", AuthMiddleware(['consumidor', 'productor']), MensajesController.ObtenerMensajesNoLeidos);
 router.get("/mensajes/conversacion/:id_usuario", AuthMiddleware(['consumidor', 'productor']), MensajesController.ObtenerConversacion);
+router.get("/mensajes/probar", AuthMiddleware(['consumidor', 'productor']), MensajesController.ProbarMensajes);
 
 // 📌 Ruta para contactar productor (sin autenticación)
 router.post("/mensajes/contactar-productor", MensajesController.ContactarProductor);

@@ -167,18 +167,6 @@ export default function ProductoDetalleScreen({ route, navigation }) {
               </View>
             </View>
           )}
-
-          {producto.region_origen && (
-            <View style={styles.infoRow}>
-              <View style={styles.infoItem}>
-                <Ionicons name="globe-outline" size={20} color="#2196f3" />
-                <View style={styles.infoContent}>
-                  <Text style={styles.label}>Región</Text>
-                  <Text style={styles.value}>{producto.region_origen}</Text>
-                </View>
-              </View>
-            </View>
-          )}
         </View>
 
         {producto.nombre_productor && (
