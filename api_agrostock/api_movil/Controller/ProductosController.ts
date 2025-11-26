@@ -988,6 +988,14 @@ export const getProductoDetallado = async (ctx: RouterContext<"/productos/:id/de
     
     const productoData = producto[0] as any;
     
+    // Log para verificar las imágenes adicionales del producto específico
+    console.log(`[ProductosController.getProductoDetallado] Producto ${id_producto} - imagenes_adicionales:`, {
+      tipo: typeof productoData.imagenes_adicionales,
+      valor: productoData.imagenes_adicionales,
+      esNull: productoData.imagenes_adicionales === null,
+      esUndefined: productoData.imagenes_adicionales === undefined,
+    });
+    
     // Obtener información adicional de forma segura (con try-catch para cada JOIN)
     let nombre_productor = null;
     let email_productor = null;

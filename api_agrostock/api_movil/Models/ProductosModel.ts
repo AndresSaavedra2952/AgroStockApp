@@ -375,31 +375,101 @@ export class ProductosModel {
             }
 
             // Procesar imágenes adicionales
+            // El frontend envía un array que puede contener:
+            // - Rutas relativas de imágenes existentes que se mantienen (strings que no son base64)
+            // - Imágenes nuevas en formato base64 (strings que empiezan con "data:image/")
+            console.log(`[ProductosModel.EditarProducto] Procesando imágenes adicionales para producto ${id_producto}`);
+            console.log(`[ProductosModel.EditarProducto] imagenesAdicionales recibidas:`, {
+                tipo: typeof imagenesAdicionales,
+                esArray: Array.isArray(imagenesAdicionales),
+                longitud: imagenesAdicionales ? imagenesAdicionales.length : 0,
+                contenido: imagenesAdicionales ? imagenesAdicionales.map((img, idx) => ({
+                    indice: idx,
+                    tipo: typeof img,
+                    esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+                    esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+                    preview: typeof img === 'string' ? img.substring(0, 50) : String(img)
+                })) : null
+            });
+            
             let imagenesAdicionalesJson: string | null = null;
             if (imagenesAdicionales && imagenesAdicionales.length > 0) {
                 try {
-                    const rutasImagenesAdicionales: string[] = [];
+                    const rutasFinales: string[] = [];
+                    
                     for (const imgData of imagenesAdicionales) {
                         if (typeof imgData === 'string' && imgData.trim().length > 0) {
-                            try {
-                                const rutaImg = await this.guardarImagen(id_producto, imgData);
-                                rutasImagenesAdicionales.push(rutaImg);
-                            } catch (imgError) {
-                                console.error("Error al guardar imagen adicional:", imgError);
+                            // Si es base64 (nueva imagen), guardarla
+                            if (imgData.startsWith('data:image/')) {
+                                try {
+                                    console.log(`[ProductosModel.EditarProducto] Guardando nueva imagen adicional para producto ${id_producto}`);
+                                    const rutaImg = await this.guardarImagen(id_producto, imgData);
+                                    console.log(`[ProductosModel.EditarProducto] ✅ Nueva imagen guardada: ${rutaImg}`);
+                                    rutasFinales.push(rutaImg);
+                                } catch (imgError) {
+                                    console.error(`[ProductosModel.EditarProducto] Error al guardar imagen adicional nueva para producto ${id_producto}:`, imgError);
+                                }
+                            } else {
+                                // Si es una ruta relativa (imagen existente que se mantiene), agregarla directamente
+                                console.log(`[ProductosModel.EditarProducto] Manteniendo imagen existente: ${imgData}`);
+                                rutasFinales.push(imgData);
                             }
                         }
                     }
-                    if (rutasImagenesAdicionales.length > 0) {
-                        imagenesAdicionalesJson = JSON.stringify(rutasImagenesAdicionales);
+                    
+                    if (rutasFinales.length > 0) {
+                        imagenesAdicionalesJson = JSON.stringify(rutasFinales);
+                        console.log(`[ProductosModel.EditarProducto] ✅ Imágenes adicionales finales para producto ${id_producto}:`, imagenesAdicionalesJson);
+                    } else {
+                        console.log(`[ProductosModel.EditarProducto] ⚠️ No se procesaron imágenes adicionales válidas para producto ${id_producto}`);
                     }
                 } catch (error) {
-                    console.error("Error al procesar imágenes adicionales:", error);
+                    console.error(`[ProductosModel.EditarProducto] Error al procesar imágenes adicionales para producto ${id_producto}:`, error);
+                }
+            } else {
+                // Si se envía un array vacío explícitamente, limpiar las imágenes adicionales
+                // PERO si no se envía el campo, mantener las existentes
+                console.log(`[ProductosModel.EditarProducto] Array vacío o undefined recibido para producto ${id_producto}`);
+                console.log(`[ProductosModel.EditarProducto] imagenesAdicionales es:`, imagenesAdicionales);
+                
+                // Si se envía explícitamente un array vacío, limpiar
+                // Si es undefined/null, mantener las existentes (no actualizar el campo)
+                if (imagenesAdicionales !== undefined && imagenesAdicionales !== null && Array.isArray(imagenesAdicionales) && imagenesAdicionales.length === 0) {
+                    console.log(`[ProductosModel.EditarProducto] Array vacío explícito recibido, limpiando imágenes adicionales para producto ${id_producto}`);
+                    imagenesAdicionalesJson = null;
+                } else {
+                    // Si no se envía el campo, no actualizar (mantener las existentes)
+                    console.log(`[ProductosModel.EditarProducto] No se enviaron imágenes adicionales, manteniendo las existentes para producto ${id_producto}`);
+                    imagenesAdicionalesJson = undefined; // undefined significa "no actualizar este campo"
                 }
             }
 
-            const result = await conexion.execute(`UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, imagenes_adicionales = ?, disponible = ? WHERE id_producto = ?`,
-                [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, imagenesAdicionalesJson, disponible !== false ? 1 : 0, id_producto]
-            );
+            console.log(`[ProductosModel.EditarProducto] Actualizando producto ${id_producto} con imagenes_adicionales:`, imagenesAdicionalesJson);
+            
+            // Construir la query dinámicamente según si se actualizan las imágenes adicionales
+            let query: string;
+            let params: any[];
+            
+            if (imagenesAdicionalesJson !== undefined) {
+                // Si se proporciona un valor (null o JSON), actualizar el campo
+                query = `UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, imagenes_adicionales = ?, disponible = ? WHERE id_producto = ?`;
+                params = [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, imagenesAdicionalesJson, disponible !== false ? 1 : 0, id_producto];
+            } else {
+                // Si es undefined, no actualizar el campo imagenes_adicionales (mantener las existentes)
+                query = `UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, disponible = ? WHERE id_producto = ?`;
+                params = [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, disponible !== false ? 1 : 0, id_producto];
+            }
+            
+            console.log(`[ProductosModel.EditarProducto] Query a ejecutar:`, query.substring(0, 100) + '...');
+            console.log(`[ProductosModel.EditarProducto] Parámetros:`, params.map((p, i) => ({ indice: i, tipo: typeof p, valor: typeof p === 'string' && p.length > 50 ? p.substring(0, 50) + '...' : p })));
+            
+            const result = await conexion.execute(query, params);
+            
+            // Verificar que se actualizó correctamente
+            if (result && result.affectedRows > 0) {
+                const productoVerificado = await conexion.query("SELECT imagenes_adicionales FROM productos WHERE id_producto = ?", [id_producto]);
+                console.log(`[ProductosModel.EditarProducto] ✅ Producto ${id_producto} actualizado. imagenes_adicionales en BD:`, productoVerificado[0]?.imagenes_adicionales);
+            }
 
             // Si el precio cambió, registrar en historial de precios
             if (precioAnterior !== null && precio !== undefined && precioAnterior !== precio) {

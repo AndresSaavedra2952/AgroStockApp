@@ -53,7 +53,7 @@ app.use(async (ctx, next) => {
       "http://localhost:3000",
       "http://localhost:8080", 
       "http://localhost:5173",
-      "http://172.20.10.7:5173",
+      "http://172.20.10.8:5173",
       "https://agrostock.com"
     ];
     
@@ -320,8 +320,8 @@ async function iniciarServidor() {
     console.log(`📡 Escuchando en todas las interfaces (0.0.0.0:${PORT})`);
     console.log(`🌐 URLs disponibles:`);
     console.log(`   - http://localhost:${PORT}`);
-    console.log(`   - http://172.20.10.7:${PORT}`);
-    console.log(`   - http://172.20.10.7:${PORT} (IP local)`);
+    console.log(`   - http://172.20.10.8:${PORT}`);
+    console.log(`   - http://172.20.10.8:${PORT} (IP local)`);
     console.log(`\n✅ Servidor listo para recibir conexiones`);
     console.log(`💡 Health check: http://localhost:${PORT}/health`);
     console.log("=".repeat(60) + "\n");

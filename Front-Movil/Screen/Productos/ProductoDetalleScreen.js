@@ -8,11 +8,16 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
+  FlatList,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import productosService from '../../src/service/ProductosService';
 import cartService from '../../src/service/CartService';
 import { useAuth } from '../../src/context/AuthContext';
+import { API_BASE_URL } from '../../src/service/conexion';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ProductoDetalleScreen({ route, navigation }) {
   const { productoId } = route.params;
@@ -20,6 +25,8 @@ export default function ProductoDetalleScreen({ route, navigation }) {
   const [producto, setProducto] = useState(null);
   const [cantidad, setCantidad] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [imagenes, setImagenes] = useState([]);
+  const [imagenActualIndex, setImagenActualIndex] = useState(0);
 
   useEffect(() => {
     cargarProducto();
@@ -29,7 +36,43 @@ export default function ProductoDetalleScreen({ route, navigation }) {
     try {
       const response = await productosService.getProductoDetallado(productoId);
       if (response.success) {
-        setProducto(response.data);
+        const productoData = response.data;
+        setProducto(productoData);
+        
+        // Preparar array de imágenes: imagen principal + imágenes adicionales
+        const imagenesArray = [];
+        
+        // Agregar imagen principal si existe
+        if (productoData.imagenUrl) {
+          imagenesArray.push(productoData.imagenUrl);
+        }
+        
+        // Agregar imágenes adicionales si existen
+        if (productoData.imagenes_adicionales) {
+          try {
+            let imagenesAdic = [];
+            if (typeof productoData.imagenes_adicionales === 'string') {
+              imagenesAdic = JSON.parse(productoData.imagenes_adicionales);
+            } else if (Array.isArray(productoData.imagenes_adicionales)) {
+              imagenesAdic = productoData.imagenes_adicionales;
+            }
+            
+            imagenesAdic.forEach(img => {
+              if (img) {
+                // Si es una URL completa, usarla directamente
+                // Si es una ruta relativa, construir la URL completa
+                const imagenUrl = img.startsWith('http') 
+                  ? img 
+                  : `${API_BASE_URL}/${img.replace(/\\/g, '/').replace(/^\//, '')}`;
+                imagenesArray.push(imagenUrl);
+              }
+            });
+          } catch (e) {
+            console.error('Error al parsear imágenes adicionales:', e);
+          }
+        }
+        
+        setImagenes(imagenesArray);
       }
     } catch (error) {
       Alert.alert('Error', 'No se pudo cargar el producto');
@@ -66,10 +109,53 @@ export default function ProductoDetalleScreen({ route, navigation }) {
     );
   }
 
+  const renderImagen = ({ item, index }) => (
+    <View style={styles.imagenContainer}>
+      <Image source={{ uri: item }} style={styles.imagen} />
+    </View>
+  );
+
+  const onScrollImagen = (event) => {
+    const slideSize = event.nativeEvent.layoutMeasurement.width;
+    const index = Math.round(event.nativeEvent.contentOffset.x / slideSize);
+    setImagenActualIndex(index);
+  };
+
   return (
     <ScrollView style={styles.container}>
-      {producto.imagenUrl && (
-        <Image source={{ uri: producto.imagenUrl }} style={styles.imagen} />
+      {imagenes.length > 0 ? (
+        <View style={styles.carruselContainer}>
+          <FlatList
+            data={imagenes}
+            renderItem={renderImagen}
+            keyExtractor={(item, index) => `imagen-${index}`}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onScrollImagen}
+            style={styles.carrusel}
+          />
+          {imagenes.length > 1 && (
+            <View style={styles.indicadoresContainer}>
+              {imagenes.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.indicador,
+                    index === imagenActualIndex && styles.indicadorActivo,
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      ) : (
+        <View style={styles.imagenContainer}>
+          <View style={[styles.imagen, styles.imagenPlaceholder]}>
+            <Ionicons name="image-outline" size={60} color="#ccc" />
+            <Text style={styles.imagenPlaceholderText}>Sin imagen</Text>
+          </View>
+        </View>
       )}
       
       <View style={styles.content}>
@@ -266,11 +352,54 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  carruselContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 300,
+  },
+  carrusel: {
+    width: '100%',
+    height: 300,
+  },
+  imagenContainer: {
+    width: SCREEN_WIDTH,
+    height: 300,
+  },
   imagen: {
     width: '100%',
     height: 300,
     backgroundColor: '#ddd',
     resizeMode: 'cover',
+  },
+  imagenPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+  },
+  imagenPlaceholderText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#999',
+  },
+  indicadoresContainer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  indicador: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+  indicadorActivo: {
+    width: 20,
+    backgroundColor: '#fff',
   },
   content: {
     padding: 20,

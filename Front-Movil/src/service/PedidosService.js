@@ -126,6 +126,30 @@ export const pedidosService = {
       throw error.response?.data || error.message;
     }
   },
+
+  /**
+   * Eliminar pedido (solo consumidores pueden eliminar sus pedidos pendientes)
+   */
+  async eliminarPedido(id) {
+    try {
+      const response = await api.delete(`/pedidos/${id}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Obtener mis pedidos (para productores y consumidores)
+   */
+  async getMisPedidos() {
+    try {
+      const response = await api.get('/pedidos/mis-pedidos');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
 };
 
 export default pedidosService;

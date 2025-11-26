@@ -36,8 +36,9 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
   });
   const [imagen, setImagen] = useState(null);
   const [imagenBase64, setImagenBase64] = useState(null);
-  const [imagenesAdicionales, setImagenesAdicionales] = useState([]);
-  const [imagenesAdicionalesBase64, setImagenesAdicionalesBase64] = useState([]);
+  const [imagenesAdicionales, setImagenesAdicionales] = useState([]); // URLs de imágenes existentes
+  const [imagenesAdicionalesNuevas, setImagenesAdicionalesNuevas] = useState([]); // URIs locales de nuevas imágenes con IDs únicos
+  const [imagenesAdicionalesBase64, setImagenesAdicionalesBase64] = useState([]); // Base64 de nuevas imágenes con IDs únicos
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
@@ -52,6 +53,12 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
 
   useEffect(() => {
     if (visible && productoId) {
+      // Limpiar estados al abrir el modal para evitar duplicados
+      setImagenesAdicionales([]);
+      setImagenesAdicionalesNuevas([]);
+      setImagenesAdicionalesBase64([]);
+      setImagen(null);
+      setImagenBase64(null);
       cargarDatos();
     }
   }, [visible, productoId]);
@@ -59,10 +66,17 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
   const cargarDatos = async () => {
     setLoading(true);
     try {
-      // Cargar producto
-      const response = await productosService.getProductoPorId(productoId);
+      // Cargar producto - usar getProductoDetallado para obtener todas las imágenes
+      const response = await productosService.getProductoDetallado(productoId);
       if (response.success && response.data) {
         const producto = response.data;
+        
+        console.log(`[EditarProductoModal] Producto cargado:`, {
+          id: producto.id_producto,
+          nombre: producto.nombre,
+          imagenes_adicionales_tipo: typeof producto.imagenes_adicionales,
+          imagenes_adicionales_valor: producto.imagenes_adicionales,
+        });
         
         // Cargar imagen principal si existe
         if (producto.imagenUrl || producto.imagen_principal) {
@@ -79,14 +93,33 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
               imagenesAdic = producto.imagenes_adicionales;
             }
             
-            const imagenesConUrl = imagenesAdic.map(img => {
-              if (img.startsWith('http')) return img;
-              return `${API_BASE_URL}/${img}`;
+            console.log(`[EditarProductoModal.cargarDatos] Imágenes adicionales parseadas desde BD:`, {
+              cantidad: imagenesAdic.length,
+              contenido: imagenesAdic.map((img, idx) => ({ indice: idx, ruta: img?.substring(0, 80) }))
             });
+            
+            const imagenesConUrl = imagenesAdic.map(img => {
+              if (!img) return null;
+              if (img.startsWith('http')) {
+                console.log(`[EditarProductoModal.cargarDatos] Imagen ya tiene URL completa: ${img.substring(0, 80)}`);
+                return img;
+              }
+              // Construir URL completa desde la ruta relativa
+              const rutaLimpia = img.replace(/\\/g, '/').replace(/^\//, '');
+              const urlCompleta = `${API_BASE_URL}/${rutaLimpia}`;
+              console.log(`[EditarProductoModal.cargarDatos] Construyendo URL: ${img} -> ${urlCompleta}`);
+              return urlCompleta;
+            }).filter(img => img !== null);
+            
+            console.log(`[EditarProductoModal.cargarDatos] ✅ ${imagenesConUrl.length} imágenes adicionales cargadas como existentes`);
             setImagenesAdicionales(imagenesConUrl);
           } catch (e) {
             console.error('Error al parsear imágenes adicionales:', e);
+            console.error('Valor que causó el error:', producto.imagenes_adicionales);
           }
+        } else {
+          console.log(`[EditarProductoModal] No hay imágenes adicionales para este producto`);
+          setImagenesAdicionales([]);
         }
         
         setFormData({
@@ -240,53 +273,133 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
+      allowsMultipleSelection: true, // Permitir seleccionar múltiples imágenes
+      allowsEditing: false, // Desactivar edición para múltiples imágenes
       quality: 0.8,
       base64: true,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const asset = result.assets[0];
-      const nuevaImagen = asset.uri;
+      const nuevasImagenes = [];
+      const nuevasImagenesBase64 = [];
       
-      let nuevaImagenBase64 = null;
-      if (asset.base64) {
-        let mimeType = 'image/jpeg';
-        if (asset.type) {
-          mimeType = asset.type;
-        } else if (asset.uri.toLowerCase().includes('.png')) {
-          mimeType = 'image/png';
-        }
-        nuevaImagenBase64 = `data:${mimeType};base64,${asset.base64}`;
-      } else {
-        try {
-          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
+      for (const asset of result.assets) {
+        const nuevaImagen = asset.uri;
+        
+        let nuevaImagenBase64 = null;
+        if (asset.base64) {
           let mimeType = 'image/jpeg';
-          const uriLower = asset.uri.toLowerCase();
-          if (uriLower.includes('.png')) {
+          if (asset.type) {
+            mimeType = asset.type;
+          } else if (asset.uri.toLowerCase().includes('.png')) {
             mimeType = 'image/png';
+          } else if (asset.uri.toLowerCase().includes('.gif')) {
+            mimeType = 'image/gif';
+          } else if (asset.uri.toLowerCase().includes('.webp')) {
+            mimeType = 'image/webp';
           }
-          nuevaImagenBase64 = `data:${mimeType};base64,${base64}`;
-        } catch (error) {
-          console.error('Error al leer imagen:', error);
-          Alert.alert('Error', 'No se pudo procesar la imagen');
-          return;
+          nuevaImagenBase64 = `data:${mimeType};base64,${asset.base64}`;
+        } else {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            let mimeType = 'image/jpeg';
+            const uriLower = asset.uri.toLowerCase();
+            if (uriLower.includes('.png')) {
+              mimeType = 'image/png';
+            } else if (uriLower.includes('.gif')) {
+              mimeType = 'image/gif';
+            } else if (uriLower.includes('.webp')) {
+              mimeType = 'image/webp';
+            }
+            nuevaImagenBase64 = `data:${mimeType};base64,${base64}`;
+          } catch (error) {
+            console.error('Error al leer imagen:', error);
+            continue; // Continuar con la siguiente imagen si esta falla
+          }
+        }
+        
+        if (nuevaImagenBase64) {
+          nuevasImagenes.push({ id: Date.now() + Math.random(), uri: nuevaImagen });
+          nuevasImagenesBase64.push({ id: Date.now() + Math.random(), base64: nuevaImagenBase64 });
         }
       }
       
-      setImagenesAdicionales([...imagenesAdicionales, nuevaImagen]);
-      setImagenesAdicionalesBase64([...imagenesAdicionalesBase64, nuevaImagenBase64]);
+      if (nuevasImagenes.length > 0) {
+        console.log(`[EditarProductoModal.seleccionarImagenAdicional] Agregando ${nuevasImagenes.length} nuevas imágenes`);
+        console.log(`[EditarProductoModal.seleccionarImagenAdicional] Estado ANTES de agregar:`, {
+          existentes: imagenesAdicionales.length,
+          nuevas: imagenesAdicionalesNuevas.length,
+          nuevasBase64: imagenesAdicionalesBase64.length
+        });
+        
+        // Agregar las nuevas imágenes SIN modificar las existentes
+        setImagenesAdicionalesNuevas(prev => {
+          const nuevoEstado = [...prev, ...nuevasImagenes];
+          console.log(`[EditarProductoModal.seleccionarImagenAdicional] Nuevo estado de nuevas imágenes: ${nuevoEstado.length}`);
+          return nuevoEstado;
+        });
+        
+        setImagenesAdicionalesBase64(prev => {
+          const nuevoEstado = [...prev, ...nuevasImagenesBase64];
+          console.log(`[EditarProductoModal.seleccionarImagenAdicional] Nuevo estado de nuevas imágenes base64: ${nuevoEstado.length}`);
+          return nuevoEstado;
+        });
+        
+        console.log(`[EditarProductoModal.seleccionarImagenAdicional] Estado DESPUÉS de agregar:`, {
+          existentes: imagenesAdicionales.length, // No debería cambiar
+          nuevas: imagenesAdicionalesNuevas.length + nuevasImagenes.length,
+          nuevasBase64: imagenesAdicionalesBase64.length + nuevasImagenesBase64.length
+        });
+      }
     }
   };
 
-  const eliminarImagenAdicional = (index) => {
-    const nuevasImagenes = imagenesAdicionales.filter((_, i) => i !== index);
-    const nuevasImagenesBase64 = imagenesAdicionalesBase64.filter((_, i) => i !== index);
-    setImagenesAdicionales(nuevasImagenes);
-    setImagenesAdicionalesBase64(nuevasImagenesBase64);
+  const eliminarImagenAdicional = (index, esExistente, idUnico = null) => {
+    console.log(`[EditarProductoModal] ========== ELIMINANDO IMAGEN ADICIONAL ==========`);
+    console.log(`[EditarProductoModal] Parámetros:`, { index, esExistente, idUnico });
+    console.log(`[EditarProductoModal] Estado ANTES de eliminar:`, {
+      existentes: imagenesAdicionales.length,
+      existentesArray: imagenesAdicionales.map((img, i) => ({ indice: i, url: img?.substring(0, 80) })),
+      nuevas: imagenesAdicionalesNuevas.length,
+      nuevasBase64: imagenesAdicionalesBase64.length,
+    });
+    
+    if (esExistente) {
+      // Eliminar imagen existente (solo del estado local, se eliminará del servidor al guardar)
+      const imagenAEliminar = imagenesAdicionales[index];
+      console.log(`[EditarProductoModal] Imagen existente a eliminar (índice ${index}):`, imagenAEliminar?.substring(0, 80));
+      
+      // Crear una copia del array y eliminar el elemento en el índice especificado
+      const nuevasImagenes = [...imagenesAdicionales];
+      nuevasImagenes.splice(index, 1);
+      
+      console.log(`[EditarProductoModal] Estado DESPUÉS de eliminar existente:`, {
+        antes: imagenesAdicionales.length,
+        después: nuevasImagenes.length,
+        nuevasImagenes: nuevasImagenes.map((img, i) => ({ indice: i, url: img?.substring(0, 80) }))
+      });
+      
+      setImagenesAdicionales(nuevasImagenes);
+    } else {
+      // Eliminar imagen nueva (aún no guardada) usando ID único si está disponible
+      let nuevasImagenes, nuevasImagenesBase64;
+      
+      if (idUnico) {
+        // Usar ID único para eliminar (más seguro)
+        nuevasImagenes = imagenesAdicionalesNuevas.filter(img => img.id !== idUnico);
+        nuevasImagenesBase64 = imagenesAdicionalesBase64.filter(img => img.id !== idUnico);
+      } else {
+        // Fallback a índice si no hay ID único
+        nuevasImagenes = imagenesAdicionalesNuevas.filter((_, i) => i !== index);
+        nuevasImagenesBase64 = imagenesAdicionalesBase64.filter((_, i) => i !== index);
+      }
+      
+      console.log(`[EditarProductoModal] Antes de eliminar nueva: ${imagenesAdicionalesNuevas.length}, después: ${nuevasImagenes.length}`);
+      setImagenesAdicionalesNuevas(nuevasImagenes);
+      setImagenesAdicionalesBase64(nuevasImagenesBase64);
+    }
   };
 
   const guardarCambios = async () => {
@@ -315,18 +428,228 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
         productoData.imagenData = imagenBase64;
       }
 
-      // Incluir imágenes adicionales solo si hay nuevas (base64)
-      // Las imágenes existentes (URLs) no se envían, solo las nuevas
-      if (imagenesAdicionalesBase64.length > 0) {
-        productoData.imagenes_adicionales = imagenesAdicionalesBase64;
+      // Incluir imágenes adicionales: las existentes que se mantienen + las nuevas
+      // Necesitamos enviar las rutas de las imágenes existentes que se mantienen
+      // y las nuevas imágenes en base64
+      console.log(`[EditarProductoModal.guardarCambios] Preparando imágenes adicionales para enviar:`, {
+        existentes: imagenesAdicionales.length,
+        nuevas: imagenesAdicionalesNuevas.length,
+        nuevasBase64: imagenesAdicionalesBase64.length,
+      });
+      
+      const imagenesParaEnviar = [];
+      
+      // Agregar las imágenes existentes que se mantienen (extraer la ruta relativa de la URL)
+      // Usar un Set para evitar duplicados
+      const rutasExistentes = new Set();
+      
+      console.log(`[EditarProductoModal.guardarCambios] Procesando ${imagenesAdicionales.length} imágenes existentes`);
+      console.log(`[EditarProductoModal.guardarCambios] API_BASE_URL: ${API_BASE_URL}`);
+      
+      imagenesAdicionales.forEach((imgUrl, idx) => {
+        if (!imgUrl) {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} es null/undefined, omitiendo`);
+          return;
+        }
+        
+        console.log(`[EditarProductoModal.guardarCambios] Procesando imagen existente ${idx + 1}:`, imgUrl.substring(0, 100));
+        
+        let rutaRelativa = null;
+        if (imgUrl.startsWith(API_BASE_URL)) {
+          // Extraer la ruta relativa desde la URL completa
+          rutaRelativa = imgUrl.replace(API_BASE_URL, '').replace(/^\/+/, '');
+          console.log(`[EditarProductoModal.guardarCambios] Ruta extraída desde URL completa: ${rutaRelativa}`);
+        } else if (!imgUrl.startsWith('http')) {
+          // Si ya es una ruta relativa, usarla directamente
+          rutaRelativa = imgUrl.replace(/^\/+/, '');
+          console.log(`[EditarProductoModal.guardarCambios] Ruta relativa directa: ${rutaRelativa}`);
+        } else {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} tiene formato desconocido (no coincide con API_BASE_URL ni es ruta relativa): ${imgUrl.substring(0, 100)}`);
+          // Intentar extraer la ruta de todas formas si contiene "uploads"
+          if (imgUrl.includes('uploads/')) {
+            const match = imgUrl.match(/uploads\/.+$/);
+            if (match) {
+              rutaRelativa = match[0];
+              console.log(`[EditarProductoModal.guardarCambios] Ruta extraída mediante regex: ${rutaRelativa}`);
+            }
+          }
+          if (!rutaRelativa) {
+            return; // No se pudo extraer la ruta
+          }
+        }
+        
+        if (rutaRelativa && !rutasExistentes.has(rutaRelativa)) {
+          rutasExistentes.add(rutaRelativa);
+          console.log(`[EditarProductoModal.guardarCambios] ✅ Agregando imagen existente ${idx + 1} a imagenesParaEnviar: ${rutaRelativa}`);
+          imagenesParaEnviar.push(rutaRelativa);
+        } else if (rutaRelativa) {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} duplicada, omitiendo: ${rutaRelativa}`);
+        } else {
+          console.error(`[EditarProductoModal.guardarCambios] ❌ No se pudo extraer ruta de imagen existente ${idx + 1}`);
+        }
+      });
+      
+      console.log(`[EditarProductoModal.guardarCambios] Total de imágenes existentes agregadas: ${imagenesParaEnviar.length}`);
+      console.log(`[EditarProductoModal.guardarCambios] Rutas de imágenes existentes que se enviarán:`, imagenesParaEnviar.map((ruta, idx) => ({ indice: idx, ruta: ruta.substring(0, 80) })));
+      
+      // Agregar las nuevas imágenes en base64 (solo las que aún no se han guardado)
+      // Usar un Set para evitar duplicados de base64
+      const base64Enviados = new Set();
+      
+      console.log(`[EditarProductoModal.guardarCambios] Procesando ${imagenesAdicionalesBase64.length} imágenes nuevas en base64`);
+      
+      imagenesAdicionalesBase64.forEach((imgObj, idx) => {
+        let base64Data = null;
+        
+        if (imgObj && imgObj.base64) {
+          base64Data = imgObj.base64;
+        } else if (typeof imgObj === 'string') {
+          // Compatibilidad: si es string directo (formato antiguo)
+          base64Data = imgObj;
+        } else {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen nueva ${idx + 1} tiene formato desconocido:`, typeof imgObj);
+          return;
+        }
+        
+        if (base64Data) {
+          // Crear un hash simple del base64 para detectar duplicados (usar primeros 100 caracteres)
+          const base64Hash = base64Data.substring(0, 100);
+          
+          if (!base64Enviados.has(base64Hash)) {
+            base64Enviados.add(base64Hash);
+            console.log(`[EditarProductoModal.guardarCambios] ✅ Agregando imagen nueva ${idx + 1} (base64, longitud: ${base64Data.length})`);
+            imagenesParaEnviar.push(base64Data);
+          } else {
+            console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen nueva ${idx + 1} duplicada, omitiendo`);
+          }
+        }
+      });
+      
+      console.log(`[EditarProductoModal.guardarCambios] ========== RESUMEN FINAL ANTES DE ENVIAR ==========`);
+      console.log(`[EditarProductoModal.guardarCambios] Estado de arrays:`, {
+        imagenesAdicionales: imagenesAdicionales.length,
+        imagenesAdicionalesNuevas: imagenesAdicionalesNuevas.length,
+        imagenesAdicionalesBase64: imagenesAdicionalesBase64.length,
+        imagenesParaEnviar: imagenesParaEnviar.length,
+        desgloseImagenesParaEnviar: {
+          rutasExistentes: imagenesParaEnviar.filter(img => typeof img === 'string' && !img.startsWith('data:image/')).length,
+          base64Nuevas: imagenesParaEnviar.filter(img => typeof img === 'string' && img.startsWith('data:image/')).length
+        }
+      });
+      console.log(`[EditarProductoModal.guardarCambios] Contenido completo de imagenesParaEnviar:`, imagenesParaEnviar.map((img, idx) => ({
+        indice: idx,
+        tipo: typeof img,
+        esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+        esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+        preview: typeof img === 'string' ? (img.startsWith('data:image/') ? 'base64...' : img.substring(0, 80)) : String(img)
+      })));
+      console.log(`[EditarProductoModal.guardarCambios] Contenido de imagenesParaEnviar:`, imagenesParaEnviar.map((img, idx) => ({
+        indice: idx,
+        tipo: typeof img,
+        esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+        esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+        preview: typeof img === 'string' ? (img.startsWith('data:image/') ? img.substring(0, 50) + '...' : img.substring(0, 80)) : String(img)
+      })));
+      
+      // SIEMPRE enviar el array explícitamente
+      if (imagenesParaEnviar.length > 0) {
+        productoData.imagenes_adicionales = imagenesParaEnviar;
+        console.log(`[EditarProductoModal.guardarCambios] ✅ Enviando ${imagenesParaEnviar.length} imágenes adicionales`);
+      } else {
+        // Si no hay imágenes, enviar array vacío para limpiar
+        productoData.imagenes_adicionales = [];
+        console.log(`[EditarProductoModal.guardarCambios] ⚠️ Enviando array vacío (no hay imágenes para mantener)`);
       }
 
+      console.log(`[EditarProductoModal.guardarCambios] ========== ENVIANDO AL BACKEND ==========`);
+      console.log(`[EditarProductoModal.guardarCambios] Resumen final:`, {
+        imagenesExistentes: imagenesAdicionales.length,
+        imagenesNuevas: imagenesAdicionalesNuevas.length,
+        totalParaEnviar: imagenesParaEnviar.length,
+        desglose: {
+          rutasExistentes: imagenesParaEnviar.filter(img => !img.startsWith('data:image/')).length,
+          base64Nuevas: imagenesParaEnviar.filter(img => img.startsWith('data:image/')).length
+        }
+      });
+      
+      console.log(`[EditarProductoModal.guardarCambios] ========== ENVIANDO AL BACKEND ==========`);
+      console.log(`[EditarProductoModal.guardarCambios] Resumen final ANTES de enviar:`, {
+        imagenesExistentes: imagenesAdicionales.length,
+        imagenesNuevas: imagenesAdicionalesNuevas.length,
+        totalParaEnviar: imagenesParaEnviar.length,
+        desglose: {
+          rutasExistentes: imagenesParaEnviar.filter(img => typeof img === 'string' && !img.startsWith('data:image/')).length,
+          base64Nuevas: imagenesParaEnviar.filter(img => typeof img === 'string' && img.startsWith('data:image/')).length
+        },
+        contenidoCompleto: imagenesParaEnviar.map((img, idx) => ({
+          indice: idx,
+          tipo: typeof img,
+          esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+          esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+          preview: typeof img === 'string' ? (img.startsWith('data:image/') ? 'base64...' : img.substring(0, 80)) : String(img)
+        }))
+      });
+      
       const response = await productosService.actualizarProducto(productoId, productoData);
       if (response.success) {
+        console.log(`[EditarProductoModal.guardarCambios] ✅ Producto actualizado exitosamente`);
+        console.log(`[EditarProductoModal.guardarCambios] Recargando datos del producto para obtener todas las imágenes actualizadas`);
+        
+        // Recargar los datos del producto para obtener todas las imágenes (existentes + nuevas guardadas)
+        try {
+          const productoResponse = await productosService.getProductoDetallado(productoId);
+          if (productoResponse.success && productoResponse.data) {
+            const producto = productoResponse.data;
+            
+            console.log(`[EditarProductoModal.guardarCambios] Producto recargado, imagenes_adicionales:`, {
+              tipo: typeof producto.imagenes_adicionales,
+              valor: producto.imagenes_adicionales
+            });
+            
+            // Recargar imágenes adicionales desde el servidor
+            if (producto.imagenes_adicionales) {
+              let imagenesAdic = [];
+              try {
+                if (typeof producto.imagenes_adicionales === 'string') {
+                  imagenesAdic = JSON.parse(producto.imagenes_adicionales);
+                } else if (Array.isArray(producto.imagenes_adicionales)) {
+                  imagenesAdic = producto.imagenes_adicionales;
+                }
+                
+                console.log(`[EditarProductoModal.guardarCambios] Imágenes parseadas desde servidor:`, imagenesAdic);
+                
+                const imagenesConUrl = imagenesAdic.map(img => {
+                  if (!img) return null;
+                  if (img.startsWith('http')) return img;
+                  const rutaLimpia = img.replace(/\\/g, '/').replace(/^\//, '');
+                  const urlCompleta = `${API_BASE_URL}/${rutaLimpia}`;
+                  console.log(`[EditarProductoModal.guardarCambios] Construyendo URL: ${img} -> ${urlCompleta}`);
+                  return urlCompleta;
+                }).filter(img => img !== null);
+                
+                console.log(`[EditarProductoModal.guardarCambios] ✅ Recargadas ${imagenesConUrl.length} imágenes adicionales desde el servidor`);
+                setImagenesAdicionales(imagenesConUrl);
+              } catch (e) {
+                console.error('Error al recargar imágenes adicionales:', e);
+              }
+            } else {
+              console.log(`[EditarProductoModal.guardarCambios] No hay imágenes adicionales en el producto recargado`);
+              setImagenesAdicionales([]);
+            }
+          }
+        } catch (reloadError) {
+          console.error('Error al recargar producto después de guardar:', reloadError);
+        }
+        
+        // Limpiar las imágenes nuevas ya que ahora están guardadas en el servidor
+        setImagenesAdicionalesNuevas([]);
+        setImagenesAdicionalesBase64([]);
+        
         Alert.alert('Éxito', 'Producto actualizado correctamente');
         onSuccess && onSuccess();
         onClose();
       } else {
+        console.error(`[EditarProductoModal.guardarCambios] ❌ Error al actualizar producto:`, response);
         Alert.alert('Error', response.message || 'No se pudo actualizar el producto');
       }
     } catch (error) {
@@ -568,17 +891,44 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
 
             <Text style={styles.label}>Imágenes Adicionales</Text>
             <View style={styles.imagenesAdicionalesContainer}>
-              {imagenesAdicionales.map((img, index) => (
-                <View key={index} style={styles.imagenAdicionalItem}>
-                  <Image source={{ uri: img }} style={styles.imagenAdicionalPreview} />
-                  <TouchableOpacity
-                    style={styles.eliminarImagenButton}
-                    onPress={() => eliminarImagenAdicional(index)}
-                  >
-                    <Ionicons name="close-circle" size={24} color="#d32f2f" />
-                  </TouchableOpacity>
-                </View>
-              ))}
+              {/* Mostrar imágenes existentes */}
+              {imagenesAdicionales.map((img, index) => {
+                // Usar la URL como key para evitar problemas con índices
+                const imgKey = img ? `existente-${img.substring(img.length - 50)}` : `existente-${index}`;
+                return (
+                  <View key={imgKey} style={styles.imagenAdicionalItem}>
+                    <Image source={{ uri: img }} style={styles.imagenAdicionalPreview} />
+                    <TouchableOpacity
+                      style={styles.eliminarImagenButton}
+                      onPress={() => {
+                        console.log(`[EditarProductoModal] Eliminando imagen existente en índice ${index}`);
+                        eliminarImagenAdicional(index, true);
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#d32f2f" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              
+              {/* Mostrar imágenes nuevas */}
+              {imagenesAdicionalesNuevas.map((imgObj, index) => {
+                const imgUri = typeof imgObj === 'object' && imgObj.uri ? imgObj.uri : imgObj;
+                const imgId = typeof imgObj === 'object' && imgObj.id ? imgObj.id : null;
+                return (
+                  <View key={`nueva-${imgId || index}`} style={styles.imagenAdicionalItem}>
+                    <Image source={{ uri: imgUri }} style={styles.imagenAdicionalPreview} />
+                    <TouchableOpacity
+                      style={styles.eliminarImagenButton}
+                      onPress={() => eliminarImagenAdicional(index, false, imgId)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#d32f2f" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              
+              {/* Botón para agregar más imágenes */}
               <TouchableOpacity
                 style={styles.agregarImagenButton}
                 onPress={seleccionarImagenAdicional}
@@ -733,11 +1083,13 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     marginBottom: 10,
+    marginRight: 10,
   },
   imagenAdicionalPreview: {
     width: '100%',
     height: '100%',
     borderRadius: 10,
+    backgroundColor: '#f0f0f0',
   },
   eliminarImagenButton: {
     position: 'absolute',
@@ -745,14 +1097,19 @@ const styles = StyleSheet.create({
     right: -8,
     backgroundColor: '#fff',
     borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   agregarImagenButton: {
     width: 100,
     height: 100,
     backgroundColor: '#f5f5f5',
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    borderWidth: 2,
+    borderColor: '#2e7d32',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
@@ -760,8 +1117,9 @@ const styles = StyleSheet.create({
   },
   agregarImagenText: {
     fontSize: 12,
-    color: '#666',
+    color: '#2e7d32',
     marginTop: 5,
+    fontWeight: '600',
   },
   submitButton: {
     backgroundColor: '#2e7d32',
