@@ -408,6 +408,14 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
       return;
     }
 
+    console.log(`[EditarProductoModal.guardarCambios] ========== INICIANDO GUARDADO ==========`);
+    console.log(`[EditarProductoModal.guardarCambios] Estado actual de imágenes:`, {
+      existentes: imagenesAdicionales.length,
+      existentesUrls: imagenesAdicionales.map((img, i) => ({ indice: i, url: img?.substring(0, 80) })),
+      nuevas: imagenesAdicionalesNuevas.length,
+      nuevasBase64: imagenesAdicionalesBase64.length,
+    });
+
     setSaving(true);
     try {
       const productoData = {
@@ -455,38 +463,49 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
         console.log(`[EditarProductoModal.guardarCambios] Procesando imagen existente ${idx + 1}:`, imgUrl.substring(0, 100));
         
         let rutaRelativa = null;
-        if (imgUrl.startsWith(API_BASE_URL)) {
-          // Extraer la ruta relativa desde la URL completa
-          rutaRelativa = imgUrl.replace(API_BASE_URL, '').replace(/^\/+/, '');
-          console.log(`[EditarProductoModal.guardarCambios] Ruta extraída desde URL completa: ${rutaRelativa}`);
-        } else if (!imgUrl.startsWith('http')) {
-          // Si ya es una ruta relativa, usarla directamente
-          rutaRelativa = imgUrl.replace(/^\/+/, '');
-          console.log(`[EditarProductoModal.guardarCambios] Ruta relativa directa: ${rutaRelativa}`);
-        } else {
-          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} tiene formato desconocido (no coincide con API_BASE_URL ni es ruta relativa): ${imgUrl.substring(0, 100)}`);
-          // Intentar extraer la ruta de todas formas si contiene "uploads"
-          if (imgUrl.includes('uploads/')) {
-            const match = imgUrl.match(/uploads\/.+$/);
-            if (match) {
-              rutaRelativa = match[0];
-              console.log(`[EditarProductoModal.guardarCambios] Ruta extraída mediante regex: ${rutaRelativa}`);
-            }
-          }
-          if (!rutaRelativa) {
-            return; // No se pudo extraer la ruta
+        
+        // Normalizar la URL base para comparación (sin barra final)
+        const apiBaseNormalized = API_BASE_URL.replace(/\/+$/, '');
+        const imgUrlNormalized = imgUrl.trim();
+        
+        // Caso 1: URL completa que empieza con API_BASE_URL
+        if (imgUrlNormalized.startsWith(apiBaseNormalized)) {
+          rutaRelativa = imgUrlNormalized.replace(apiBaseNormalized, '').replace(/^\/+/, '');
+          console.log(`[EditarProductoModal.guardarCambios] ✅ Ruta extraída desde URL completa: ${rutaRelativa}`);
+        }
+        // Caso 2: Ya es una ruta relativa (no empieza con http)
+        else if (!imgUrlNormalized.startsWith('http://') && !imgUrlNormalized.startsWith('https://')) {
+          rutaRelativa = imgUrlNormalized.replace(/^\/+/, '');
+          console.log(`[EditarProductoModal.guardarCambios] ✅ Ruta relativa directa: ${rutaRelativa}`);
+        }
+        // Caso 3: URL completa de otro origen, intentar extraer ruta si contiene "uploads"
+        else if (imgUrlNormalized.includes('uploads/')) {
+          const match = imgUrlNormalized.match(/uploads\/.+$/);
+          if (match) {
+            rutaRelativa = match[0];
+            console.log(`[EditarProductoModal.guardarCambios] ✅ Ruta extraída mediante regex (URL externa): ${rutaRelativa}`);
           }
         }
         
-        if (rutaRelativa && !rutasExistentes.has(rutaRelativa)) {
-          rutasExistentes.add(rutaRelativa);
-          console.log(`[EditarProductoModal.guardarCambios] ✅ Agregando imagen existente ${idx + 1} a imagenesParaEnviar: ${rutaRelativa}`);
-          imagenesParaEnviar.push(rutaRelativa);
-        } else if (rutaRelativa) {
-          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} duplicada, omitiendo: ${rutaRelativa}`);
-        } else {
-          console.error(`[EditarProductoModal.guardarCambios] ❌ No se pudo extraer ruta de imagen existente ${idx + 1}`);
+        // Validar que la ruta extraída sea válida
+        if (!rutaRelativa || rutaRelativa.trim().length === 0) {
+          console.error(`[EditarProductoModal.guardarCambios] ❌ No se pudo extraer ruta válida de imagen existente ${idx + 1}: ${imgUrl.substring(0, 100)}`);
+          return;
         }
+        
+        // Normalizar la ruta (reemplazar backslashes por forward slashes)
+        rutaRelativa = rutaRelativa.replace(/\\/g, '/');
+        
+        // Verificar que no sea duplicada
+        if (rutasExistentes.has(rutaRelativa)) {
+          console.warn(`[EditarProductoModal.guardarCambios] ⚠️ Imagen existente ${idx + 1} duplicada, omitiendo: ${rutaRelativa}`);
+          return;
+        }
+        
+        // Agregar a la lista
+        rutasExistentes.add(rutaRelativa);
+        imagenesParaEnviar.push(rutaRelativa);
+        console.log(`[EditarProductoModal.guardarCambios] ✅ Agregada imagen existente ${idx + 1} a imagenesParaEnviar: ${rutaRelativa}`);
       });
       
       console.log(`[EditarProductoModal.guardarCambios] Total de imágenes existentes agregadas: ${imagenesParaEnviar.length}`);
@@ -551,10 +570,44 @@ export default function EditarProductoModal({ visible, onClose, productoId, onSu
         preview: typeof img === 'string' ? (img.startsWith('data:image/') ? img.substring(0, 50) + '...' : img.substring(0, 80)) : String(img)
       })));
       
+      // VALIDACIÓN CRÍTICA: Asegurar que siempre se envíen las imágenes existentes + nuevas
+      if (imagenesParaEnviar.length === 0 && imagenesAdicionales.length > 0) {
+        console.error(`[EditarProductoModal.guardarCambios] ❌❌❌ ERROR CRÍTICO: Hay ${imagenesAdicionales.length} imágenes existentes pero imagenesParaEnviar está vacío!`);
+        console.error(`[EditarProductoModal.guardarCambios] Esto NO debería pasar. Reintentando extracción de rutas...`);
+        
+        // Reintentar extraer rutas de las imágenes existentes
+        imagenesAdicionales.forEach((imgUrl, idx) => {
+          if (!imgUrl) return;
+          
+          const apiBaseNormalized = API_BASE_URL.replace(/\/+$/, '');
+          const imgUrlNormalized = imgUrl.trim();
+          let rutaRelativa = null;
+          
+          if (imgUrlNormalized.startsWith(apiBaseNormalized)) {
+            rutaRelativa = imgUrlNormalized.replace(apiBaseNormalized, '').replace(/^\/+/, '');
+          } else if (!imgUrlNormalized.startsWith('http://') && !imgUrlNormalized.startsWith('https://')) {
+            rutaRelativa = imgUrlNormalized.replace(/^\/+/, '');
+          } else if (imgUrlNormalized.includes('uploads/')) {
+            const match = imgUrlNormalized.match(/uploads\/.+$/);
+            if (match) rutaRelativa = match[0];
+          }
+          
+          if (rutaRelativa) {
+            rutaRelativa = rutaRelativa.replace(/\\/g, '/');
+            if (!imagenesParaEnviar.includes(rutaRelativa)) {
+              imagenesParaEnviar.push(rutaRelativa);
+              console.log(`[EditarProductoModal.guardarCambios] ✅ Recuperada imagen existente ${idx + 1}: ${rutaRelativa}`);
+            }
+          }
+        });
+      }
+      
       // SIEMPRE enviar el array explícitamente
       if (imagenesParaEnviar.length > 0) {
         productoData.imagenes_adicionales = imagenesParaEnviar;
-        console.log(`[EditarProductoModal.guardarCambios] ✅ Enviando ${imagenesParaEnviar.length} imágenes adicionales`);
+        const rutasExistentes = imagenesParaEnviar.filter(img => !img.startsWith('data:image/')).length;
+        const base64Nuevas = imagenesParaEnviar.filter(img => img.startsWith('data:image/')).length;
+        console.log(`[EditarProductoModal.guardarCambios] ✅ Enviando ${imagenesParaEnviar.length} imágenes adicionales (${rutasExistentes} existentes + ${base64Nuevas} nuevas)`);
       } else {
         // Si no hay imágenes, enviar array vacío para limpiar
         productoData.imagenes_adicionales = [];

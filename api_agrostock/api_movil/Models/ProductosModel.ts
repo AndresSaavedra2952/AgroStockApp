@@ -399,20 +399,42 @@ export class ProductosModel {
                     
                     for (const imgData of imagenesAdicionales) {
                         if (typeof imgData === 'string' && imgData.trim().length > 0) {
+                            const imgDataTrimmed = imgData.trim();
+                            
                             // Si es base64 (nueva imagen), guardarla
-                            if (imgData.startsWith('data:image/')) {
+                            if (imgDataTrimmed.startsWith('data:image/')) {
                                 try {
-                                    console.log(`[ProductosModel.EditarProducto] Guardando nueva imagen adicional para producto ${id_producto}`);
-                                    const rutaImg = await this.guardarImagen(id_producto, imgData);
+                                    console.log(`[ProductosModel.EditarProducto] Guardando nueva imagen adicional (base64) para producto ${id_producto}`);
+                                    const rutaImg = await this.guardarImagen(id_producto, imgDataTrimmed);
                                     console.log(`[ProductosModel.EditarProducto] ✅ Nueva imagen guardada: ${rutaImg}`);
                                     rutasFinales.push(rutaImg);
                                 } catch (imgError) {
                                     console.error(`[ProductosModel.EditarProducto] Error al guardar imagen adicional nueva para producto ${id_producto}:`, imgError);
                                 }
-                            } else {
-                                // Si es una ruta relativa (imagen existente que se mantiene), agregarla directamente
-                                console.log(`[ProductosModel.EditarProducto] Manteniendo imagen existente: ${imgData}`);
-                                rutasFinales.push(imgData);
+                            } 
+                            // Si es una URL completa, extraer la ruta relativa
+                            else if (imgDataTrimmed.startsWith('http://') || imgDataTrimmed.startsWith('https://')) {
+                                console.log(`[ProductosModel.EditarProducto] ⚠️ Se recibió URL completa en lugar de ruta relativa: ${imgDataTrimmed.substring(0, 100)}`);
+                                // Intentar extraer la ruta relativa si contiene "uploads"
+                                if (imgDataTrimmed.includes('uploads/')) {
+                                    const match = imgDataTrimmed.match(/uploads\/.+$/);
+                                    if (match) {
+                                        const rutaRelativa = match[0].replace(/\\/g, '/');
+                                        console.log(`[ProductosModel.EditarProducto] ✅ Ruta extraída desde URL: ${rutaRelativa}`);
+                                        rutasFinales.push(rutaRelativa);
+                                    } else {
+                                        console.error(`[ProductosModel.EditarProducto] ❌ No se pudo extraer ruta de URL completa`);
+                                    }
+                                } else {
+                                    console.error(`[ProductosModel.EditarProducto] ❌ URL completa no contiene "uploads/", ignorando`);
+                                }
+                            }
+                            // Si es una ruta relativa (imagen existente que se mantiene), agregarla directamente
+                            else {
+                                // Normalizar la ruta (reemplazar backslashes por forward slashes)
+                                const rutaNormalizada = imgDataTrimmed.replace(/\\/g, '/').replace(/^\/+/, '');
+                                console.log(`[ProductosModel.EditarProducto] ✅ Manteniendo imagen existente: ${rutaNormalizada}`);
+                                rutasFinales.push(rutaNormalizada);
                             }
                         }
                     }
