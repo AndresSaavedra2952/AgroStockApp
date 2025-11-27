@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import pedidosService from '../../src/service/PedidosService';
+import mensajesService from '../../src/service/MensajesService';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function PedidosRecibidosScreen({ navigation }) {

@@ -7,8 +7,17 @@ export const mensajesService = {
   async getMensajesRecibidos() {
     try {
       const response = await api.get('/mensajes/recibidos');
+      // El API puede devolver { success: true, mensajes: [...] } o { success: true, data: [...] }
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          data: response.data.mensajes || response.data.data || [],
+          total: response.data.total || 0
+        };
+      }
       return response.data;
     } catch (error) {
+      console.error('Error en getMensajesRecibidos:', error);
       throw error.response?.data || error.message;
     }
   },
@@ -19,8 +28,17 @@ export const mensajesService = {
   async getMensajesEnviados() {
     try {
       const response = await api.get('/mensajes/enviados');
+      // El API devuelve { success: true, mensajes: [...], total: number }
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          data: response.data.mensajes || response.data.data || [],
+          total: response.data.total || 0
+        };
+      }
       return response.data;
     } catch (error) {
+      console.error('Error en getMensajesEnviados:', error);
       throw error.response?.data || error.message;
     }
   },
@@ -80,6 +98,26 @@ export const mensajesService = {
   async eliminarMensaje(idMensaje) {
     try {
       const response = await api.delete(`/mensajes/${idMensaje}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  /**
+   * Obtener conversación con un usuario específico
+   */
+  async obtenerConversacion(idUsuario) {
+    try {
+      const response = await api.get(`/mensajes/conversacion/${idUsuario}`);
+      // El API devuelve { success: true, conversacion: [...], total: number }
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          data: response.data.conversacion || response.data.data || [],
+          total: response.data.total || 0
+        };
+      }
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;

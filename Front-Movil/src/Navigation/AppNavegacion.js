@@ -7,15 +7,16 @@ import { Ionicons } from '@expo/vector-icons';
 // Screens de Autenticación
 import LoginScreen from '../../Screen/Auth/LoginScreen';
 import RegisterScreen from '../../Screen/Auth/RegisterScreen';
+import HomeScreen from '../../Screen/Inicio/HomeScreen';
 
 // Screens de Consumidor
-import HomeScreen from '../../Screen/Inicio/HomeScreen';
 import ProductosScreen from '../../Screen/Productos/ProductosScreen';
 import ProductoDetalleScreen from '../../Screen/Productos/ProductoDetalleScreen';
 import CarritoScreen from '../../Screen/Carrito/CarritoScreen';
 import PedidosScreen from '../../Screen/Pedidos/PedidosScreen';
 import PerfilScreen from '../../Screen/Perfil/PerfilScreen';
 import MensajesScreen from '../../Screen/Mensajes/MensajesScreen';
+import ChatIndividualScreen from '../../Screen/Mensajes/ChatIndividualScreen';
 
 // Screens de Productor
 import MisProductosScreen from '../../Screen/Productos/MisProductosScreen';
@@ -37,12 +38,11 @@ function ConsumidorTabs() {
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
 
-          if (route.name === 'Inicio') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Productos') {
+
+          if (route.name === 'Productos') {
             iconName = focused ? 'storefront' : 'storefront-outline';
-          } else if (route.name === 'Carrito') {
-            iconName = focused ? 'cart' : 'cart-outline';
+          } else if (route.name === 'Mensajes') {
+            iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
           } else if (route.name === 'Pedidos') {
             iconName = focused ? 'receipt' : 'receipt-outline';
           } else if (route.name === 'Perfil') {
@@ -56,9 +56,8 @@ function ConsumidorTabs() {
         headerShown: false,
       })}
     >
-      <Tab.Screen name="Inicio" component={HomeScreen} />
       <Tab.Screen name="Productos" component={ProductosScreen} />
-      <Tab.Screen name="Carrito" component={CarritoScreen} />
+      <Tab.Screen name="Mensajes" component={MensajesScreen} options={{ title: 'Mensajes' }} />
       <Tab.Screen name="Pedidos" component={PedidosScreen} />
       <Tab.Screen name="Perfil" component={PerfilScreen} />
     </Tab.Navigator>
@@ -72,6 +71,7 @@ function ProductorTabs() {
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
+
 
           if (route.name === 'MisProductos') {
             iconName = focused ? 'cube' : 'cube-outline';
@@ -161,7 +161,8 @@ export default function AppNavegacion() {
           <>
             <Stack.Screen name="ConsumidorMain" component={ConsumidorTabs} />
             <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
-            <Stack.Screen name="Mensajes" component={MensajesScreen} options={{ headerShown: true }} />
+            <Stack.Screen name="Carrito" component={CarritoScreen} options={{ headerShown: true, title: 'Carrito de Compras' }} />
+            <Stack.Screen name="ChatIndividual" component={ChatIndividualScreen} options={{ headerShown: false }} />
           </>
         ) : userRol === 'productor' ? (
           // Usuario productor
@@ -169,6 +170,7 @@ export default function AppNavegacion() {
             <Stack.Screen name="ProductorMain" component={ProductorTabs} />
             <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
             <Stack.Screen name="AlertasStock" component={AlertasStockScreen} options={{ headerShown: true, title: 'Alertas de Stock' }} />
+            <Stack.Screen name="ChatIndividual" component={ChatIndividualScreen} options={{ headerShown: false }} />
           </>
         ) : (
           // Rol no reconocido - mostrar login

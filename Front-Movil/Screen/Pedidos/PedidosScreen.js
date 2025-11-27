@@ -49,7 +49,11 @@ export default function PedidosScreen({ navigation }) {
   const renderPedido = ({ item }) => (
     <TouchableOpacity
       style={styles.pedidoCard}
-      onPress={() => navigation.navigate('PedidoDetalle', { pedidoId: item.id_pedido })}
+      onPress={() => {
+        // TODO: Implementar pantalla de detalle de pedido
+        // Por ahora, no hacer nada o mostrar información básica
+        console.log('Ver detalle del pedido:', item.id_pedido);
+      }}
     >
       <View style={styles.pedidoHeader}>
         <Text style={styles.pedidoId}>Pedido #{item.id_pedido}</Text>

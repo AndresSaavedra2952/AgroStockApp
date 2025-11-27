@@ -10,10 +10,12 @@ import {
   TextInput,
   FlatList,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import productosService from '../../src/service/ProductosService';
 import cartService from '../../src/service/CartService';
+import mensajesService from '../../src/service/MensajesService';
 import { useAuth } from '../../src/context/AuthContext';
 import { API_BASE_URL } from '../../src/service/conexion';
 
@@ -27,10 +29,24 @@ export default function ProductoDetalleScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [imagenes, setImagenes] = useState([]);
   const [imagenActualIndex, setImagenActualIndex] = useState(0);
+  const [showMensajeModal, setShowMensajeModal] = useState(false);
+  const [mensajeForm, setMensajeForm] = useState({
+    asunto: '',
+    mensaje: ''
+  });
+  const [enviandoMensaje, setEnviandoMensaje] = useState(false);
+  const [enListaDeseos, setEnListaDeseos] = useState(false);
+  const [cargandoListaDeseos, setCargandoListaDeseos] = useState(false);
 
   useEffect(() => {
     cargarProducto();
   }, []);
+
+  // useEffect(() => {
+  //   if (producto && user) {
+  //     verificarEnListaDeseos();
+  //   }
+  // }, [producto, user]);
 
   const cargarProducto = async () => {
     try {
@@ -42,9 +58,41 @@ export default function ProductoDetalleScreen({ route, navigation }) {
         // Preparar array de imágenes: imagen principal + imágenes adicionales
         const imagenesArray = [];
         
+        // Construir URL de imagen principal
+        const construirUrlImagen = (path) => {
+          if (!path) return null;
+          if (path.startsWith('http://') || path.startsWith('https://')) {
+            return path;
+          }
+          // Normalizar la ruta (cambiar \ por /)
+          let normalizedPath = path.replace(/\\/g, '/').replace(/\/+/g, '/');
+          
+          // Si ya empieza con /uploads, usar directamente
+          if (normalizedPath.startsWith('/uploads')) {
+            return `${API_BASE_URL}${normalizedPath}`;
+          }
+          
+          // Si empieza con uploads (sin /), agregar /
+          if (normalizedPath.startsWith('uploads')) {
+            return `${API_BASE_URL}/${normalizedPath}`;
+          }
+          
+          // Si no tiene uploads, agregarlo
+          normalizedPath = normalizedPath.startsWith('/') 
+            ? normalizedPath.substring(1) 
+            : normalizedPath;
+          return `${API_BASE_URL}/uploads/${normalizedPath}`;
+        };
+        
         // Agregar imagen principal si existe
         if (productoData.imagenUrl) {
           imagenesArray.push(productoData.imagenUrl);
+        } else if (productoData.imagen_principal) {
+          // Si no hay imagenUrl pero hay imagen_principal, construirla
+          const imagenUrl = construirUrlImagen(productoData.imagen_principal);
+          if (imagenUrl) {
+            imagenesArray.push(imagenUrl);
+          }
         }
         
         // Agregar imágenes adicionales si existen
@@ -59,12 +107,11 @@ export default function ProductoDetalleScreen({ route, navigation }) {
             
             imagenesAdic.forEach(img => {
               if (img) {
-                // Si es una URL completa, usarla directamente
-                // Si es una ruta relativa, construir la URL completa
-                const imagenUrl = img.startsWith('http') 
-                  ? img 
-                  : `${API_BASE_URL}/${img.replace(/\\/g, '/').replace(/^\//, '')}`;
-                imagenesArray.push(imagenUrl);
+                // Usar la función construirUrlImagen para mantener consistencia
+                const imagenUrl = construirUrlImagen(img);
+                if (imagenUrl) {
+                  imagenesArray.push(imagenUrl);
+                }
               }
             });
           } catch (e) {
@@ -80,6 +127,16 @@ export default function ProductoDetalleScreen({ route, navigation }) {
       setLoading(false);
     }
   };
+
+  // Funcionalidad de lista de deseos deshabilitada temporalmente
+  // const verificarEnListaDeseos = async () => {
+  //   if (!producto || !user) return;
+  //   // TODO: Implementar cuando el servicio esté disponible
+  // };
+
+  // const toggleListaDeseos = async () => {
+  //   Alert.alert('Próximamente', 'La funcionalidad de lista de deseos estará disponible pronto');
+  // };
 
   const agregarAlCarrito = async () => {
     if (!isConsumidor()) {
@@ -327,22 +384,218 @@ export default function ProductoDetalleScreen({ route, navigation }) {
         )}
 
         {isConsumidor() && (
-          <View style={styles.carritoSection}>
-            <View style={styles.cantidadContainer}>
-              <Text style={styles.label}>Cantidad:</Text>
-              <TextInput
-                style={styles.cantidadInput}
-                value={cantidad.toString()}
-                onChangeText={(text) => setCantidad(parseInt(text) || 1)}
-                keyboardType="numeric"
-              />
+          <>
+            <View style={styles.carritoSection}>
+              <View style={styles.cantidadContainer}>
+                <Text style={styles.label}>Cantidad:</Text>
+                <TextInput
+                  style={styles.cantidadInput}
+                  value={cantidad.toString()}
+                  onChangeText={(text) => setCantidad(parseInt(text) || 1)}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={styles.accionesContainer}>
+                <TouchableOpacity 
+                  style={styles.carritoButton} 
+                  onPress={agregarAlCarrito}
+                >
+                  <Ionicons name="cart-outline" size={20} color="#fff" />
+                  <Text style={styles.carritoButtonText}>Agregar al Carrito</Text>
+                </TouchableOpacity>
+                {/* Lista de deseos deshabilitada temporalmente */}
+                {/* <TouchableOpacity 
+                  style={[styles.listaDeseosButton, enListaDeseos && styles.listaDeseosButtonActive]}
+                  onPress={toggleListaDeseos}
+                  disabled={cargandoListaDeseos}
+                >
+                  <Ionicons 
+                    name={enListaDeseos ? "heart" : "heart-outline"} 
+                    size={20} 
+                    color={enListaDeseos ? "#fff" : "#dc3545"} 
+                  />
+                </TouchableOpacity> */}
+              </View>
             </View>
-            <TouchableOpacity style={styles.carritoButton} onPress={agregarAlCarrito}>
-              <Text style={styles.carritoButtonText}>Agregar al Carrito</Text>
-            </TouchableOpacity>
-          </View>
+            
+            {/* Botón para enviar mensaje al productor */}
+            {producto?.id_usuario && (
+              <TouchableOpacity 
+                style={styles.mensajeButton} 
+                onPress={() => {
+                  if (!user) {
+                    Alert.alert('Iniciar sesión', 'Debes iniciar sesión para enviar mensajes');
+                    navigation.navigate('Login');
+                    return;
+                  }
+                  setMensajeForm({
+                    asunto: `Consulta sobre: ${producto.nombre}`,
+                    mensaje: ''
+                  });
+                  setShowMensajeModal(true);
+                }}
+              >
+                <Ionicons name="chatbubble-outline" size={20} color="#fff" />
+                <Text style={styles.mensajeButtonText}>Enviar Mensaje al Productor</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+        
+        {/* Botón para contactar productor (si no es consumidor pero está autenticado) */}
+        {!isConsumidor() && producto?.id_usuario && user && (
+          <TouchableOpacity 
+            style={styles.mensajeButton} 
+            onPress={() => {
+              setMensajeForm({
+                asunto: `Consulta sobre: ${producto.nombre}`,
+                mensaje: ''
+              });
+              setShowMensajeModal(true);
+            }}
+          >
+            <Ionicons name="chatbubble-outline" size={20} color="#fff" />
+            <Text style={styles.mensajeButtonText}>Contactar Productor</Text>
+          </TouchableOpacity>
         )}
       </View>
+      
+      {/* Modal para enviar mensaje */}
+      <Modal
+        visible={showMensajeModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowMensajeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Enviar Mensaje al Productor</Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowMensajeModal(false);
+                  setMensajeForm({ asunto: '', mensaje: '' });
+                }}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Asunto *</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={mensajeForm.asunto}
+                  onChangeText={(text) => setMensajeForm({ ...mensajeForm, asunto: text })}
+                  placeholder="Ej: Consulta sobre el producto"
+                  editable={!enviandoMensaje}
+                />
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Mensaje *</Text>
+                <TextInput
+                  style={[styles.formInput, styles.textArea]}
+                  value={mensajeForm.mensaje}
+                  onChangeText={(text) => setMensajeForm({ ...mensajeForm, mensaje: text })}
+                  placeholder="Escribe tu mensaje aquí..."
+                  multiline
+                  numberOfLines={6}
+                  textAlignVertical="top"
+                  editable={!enviandoMensaje}
+                />
+              </View>
+              
+              <Text style={styles.helpText}>
+                El mensaje será enviado al productor junto con la referencia del producto.
+              </Text>
+            </ScrollView>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowMensajeModal(false);
+                  setMensajeForm({ asunto: '', mensaje: '' });
+                }}
+                disabled={enviandoMensaje}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.sendButton, (!mensajeForm.asunto.trim() || !mensajeForm.mensaje.trim() || enviandoMensaje) && styles.sendButtonDisabled]}
+                onPress={async () => {
+                  if (!mensajeForm.asunto.trim() || !mensajeForm.mensaje.trim()) {
+                    Alert.alert('Error', 'Por favor completa todos los campos');
+                    return;
+                  }
+                  
+                  if (!producto?.id_usuario) {
+                    Alert.alert('Error', 'No se puede enviar el mensaje');
+                    return;
+                  }
+                  
+                  setEnviandoMensaje(true);
+                  try {
+                    const response = await mensajesService.enviarMensaje(
+                      producto.id_usuario,
+                      mensajeForm.asunto,
+                      mensajeForm.mensaje,
+                      producto.id_producto,
+                      'consulta'
+                    );
+                    
+                    if (response.success) {
+                      setShowMensajeModal(false);
+                      setMensajeForm({ asunto: '', mensaje: '' });
+                      
+                      // Navegar directamente al chat con el productor
+                      try {
+                        // Obtener información del productor del producto
+                        const idProductor = producto.id_usuario;
+                        const nombreProductor = producto.nombre_productor || 'Productor';
+                        const emailProductor = producto.email_productor || '';
+                        
+                        // Navegar al chat individual con el productor
+                        navigation.navigate('ChatIndividual', {
+                          userId: idProductor,
+                          nombreUsuario: nombreProductor,
+                          emailUsuario: emailProductor,
+                        });
+                      } catch (error) {
+                        console.error('Error al navegar al chat:', error);
+                        Alert.alert(
+                          'Éxito', 
+                          'Mensaje enviado correctamente al productor. Puedes ver tus conversaciones en la pestaña de Mensajes.'
+                        );
+                      }
+                    } else {
+                      Alert.alert('Error', response.message || 'Error al enviar el mensaje');
+                    }
+                  } catch (error) {
+                    Alert.alert('Error', error.message || 'Error al enviar el mensaje');
+                  } finally {
+                    setEnviandoMensaje(false);
+                  }
+                }}
+                disabled={!mensajeForm.asunto.trim() || !mensajeForm.mensaje.trim() || enviandoMensaje}
+              >
+                {enviandoMensaje ? (
+                  <Text style={styles.sendButtonText}>Enviando...</Text>
+                ) : (
+                  <>
+                    <Ionicons name="send" size={18} color="#fff" />
+                    <Text style={styles.sendButtonText}>Enviar</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -500,11 +753,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 16,
   },
+  accionesContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
   carritoButton: {
+    flex: 1,
     backgroundColor: '#2e7d32',
     borderRadius: 10,
     padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     shadowColor: '#2e7d32',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -516,7 +778,140 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  listaDeseosButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#dc3545',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#dc3545',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  listaDeseosButtonActive: {
+    backgroundColor: '#dc3545',
+    borderColor: '#dc3545',
+  },
+  mensajeButton: {
+    backgroundColor: '#2196f3',
+    borderRadius: 10,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 30,
+    shadowColor: '#2196f3',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  mensajeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  modalBody: {
+    padding: 20,
+    maxHeight: 400,
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  formLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  textArea: {
+    height: 120,
+    textAlignVertical: 'top',
+  },
+  helpText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 10,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    gap: 10,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cancelButton: {
+    backgroundColor: '#f5f5f5',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sendButton: {
+    backgroundColor: '#2196f3',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
+  sendButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
-
-
-

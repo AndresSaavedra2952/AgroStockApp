@@ -11,6 +11,7 @@ import {
   ScrollView,
   Image,
   Dimensions,
+  InteractionManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
@@ -177,12 +178,69 @@ export default function RegisterScreen({ navigation }) {
       if (result.success && result.usuario) {
         // Registro exitoso
         const mensaje = formData.rol === 'productor' 
-          ? 'Usuario y perfil de productor registrados correctamente. Por favor inicia sesión.'
-          : 'Usuario registrado correctamente. Por favor inicia sesión.';
+          ? 'Usuario y perfil de productor registrados correctamente.'
+          : 'Usuario registrado correctamente.';
         
+        // Función para navegar a Login
+        const navigateToLogin = () => {
+          console.log('🔄 Intentando navegar a Login...');
+          console.log('Navigation object:', navigation);
+          console.log('Navigation methods:', Object.keys(navigation));
+          
+          try {
+            // Intentar primero con reset para limpiar el stack
+            if (navigation.reset) {
+              console.log('✅ Usando navigation.reset');
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } else if (navigation.replace) {
+              console.log('✅ Usando navigation.replace');
+              navigation.replace('Login');
+            } else {
+              console.log('✅ Usando navigation.navigate');
+              // Navegar a Login y luego limpiar el stack
+              navigation.navigate('Login');
+              // Intentar volver atrás y luego navegar para limpiar
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+                setTimeout(() => {
+                  navigation.navigate('Login');
+                }, 100);
+              }
+            }
+            console.log('✅ Navegación ejecutada correctamente');
+          } catch (error) {
+            console.error('❌ Error en navegación:', error);
+            // Último recurso: intentar navigate simple
+            try {
+              navigation.navigate('Login');
+            } catch (navError) {
+              console.error('❌ Error crítico en navegación:', navError);
+            }
+          }
+        };
+        
+        // Mostrar mensaje de éxito
         Alert.alert('Éxito', mensaje, [
-          { text: 'OK', onPress: () => navigation.navigate('Login') },
+          {
+            text: 'OK',
+            onPress: () => {
+              console.log('👆 Usuario presionó OK');
+              // Usar setTimeout para asegurar que el Alert se cierre primero
+              setTimeout(() => {
+                navigateToLogin();
+              }, 200);
+            },
+          },
         ]);
+        
+        // Redirigir automáticamente después de 2.5 segundos como respaldo
+        setTimeout(() => {
+          console.log('⏰ Timeout de redirección automática');
+          navigateToLogin();
+        }, 2500);
       } else {
         Alert.alert('Error', result.message || 'Error al registrar usuario');
       }
@@ -204,6 +262,25 @@ export default function RegisterScreen({ navigation }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Botón de retroceso */}
+          <TouchableOpacity
+            style={styles.backButtonHeader}
+            onPress={() => {
+              try {
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.navigate('HomePublic');
+                }
+              } catch (error) {
+                console.error('Error al navegar hacia atrás:', error);
+                navigation.navigate('HomePublic');
+              }
+            }}
+          >
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+
           {/* Logo */}
           <View style={styles.logoContainer}>
             <Image
@@ -622,7 +699,18 @@ export default function RegisterScreen({ navigation }) {
           {/* Link Login */}
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>¿Ya tienes cuenta? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+            <TouchableOpacity onPress={() => {
+              try {
+                navigation.navigate('Login');
+              } catch (error) {
+                console.error('Error al navegar a Login:', error);
+                // Si falla, intentar resetear la navegación
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              }
+            }}>
               <Text style={styles.loginLink}>Inicia sesión aquí</Text>
             </TouchableOpacity>
           </View>
@@ -831,5 +919,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#1976d2',
+  },
+  backButtonHeader: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 10,
+    padding: 8,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
 });
