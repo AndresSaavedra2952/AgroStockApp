@@ -1,7 +1,7 @@
 // 💳 CONTROLADOR DE PAGOS
 
-import { Context, RouterContext } from "../Dependencies/dependencias.ts";
-import { PaymentService, type PaymentData } from "../Services/PaymentService.ts";
+import { Context } from "../Dependencies/dependencias.ts";
+import { PaymentService, type PaymentData, type PaymentResponse } from "../Services/PaymentService.ts";
 import { AuditoriaService } from "../Services/AuditoriaService.ts";
 
 export class PaymentController {
@@ -39,7 +39,7 @@ export class PaymentController {
       await AuditoriaService.registrarAccion({
         id_usuario: user.id,
         accion: 'crear_pago',
-        tabla_afectada: 'pagos',
+        tabla_afectada: 'pedidos',
         id_registro_afectado: result.id_pago,
         datos_despues: paymentData as unknown as Record<string, unknown>,
         resultado: result.success ? 'exitoso' : 'fallido',
@@ -59,10 +59,71 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Obtener información de un pago
-   */
-  static async obtenerPago(ctx: RouterContext<"/pagos/:id">) {
+
+  static async crearStripePaymentIntent(ctx: Context) {
+    try {
+      const user = ctx.state.user;
+      if (!user) {
+        ctx.response.status = 401;
+        ctx.response.body = {
+          success: false,
+          error: "No autenticado",
+          message: "Debes estar autenticado"
+        };
+        return;
+      }
+
+      const body = await ctx.request.body.json();
+      const { id_pedido, monto } = body;
+
+      if (!id_pedido || !monto) {
+        ctx.response.status = 400;
+        ctx.response.body = {
+          success: false,
+          error: "Datos incompletos",
+          message: "Se requiere id_pedido y monto"
+        };
+        return;
+      }
+
+      const paymentData: PaymentData = {
+        id_pedido: Number(id_pedido),
+        id_usuario: user.id,
+        monto: Number(monto),
+        metodo_pago: 'tarjeta',
+        pasarela: 'stripe'
+      };
+
+      const result = await PaymentService.crearPago(paymentData, ctx) as PaymentResponse;
+
+      const resultTyped = result as PaymentResponse;
+      if (resultTyped.success && resultTyped.datos_adicionales) {
+        ctx.response.status = 201;
+        ctx.response.body = {
+          success: true,
+          data: {
+            client_secret: resultTyped.datos_adicionales.client_secret,
+            payment_intent_id: resultTyped.datos_adicionales.payment_intent_id,
+            id_pago: resultTyped.id_pago,
+            referencia_pago: resultTyped.referencia_pago
+          }
+        };
+      } else {
+        ctx.response.status = 400;
+        ctx.response.body = result;
+      }
+    } catch (error) {
+      console.error("Error creando Payment Intent de Stripe:", error);
+      ctx.response.status = 500;
+      ctx.response.body = {
+        success: false,
+        error: "Error interno del servidor",
+        message: "Error al crear sesión de pago"
+      };
+    }
+  }
+
+  static async confirmarPagoStripe(ctx: Context) {
     try {
       const user = ctx.state.user;
       if (!user) {
@@ -74,35 +135,39 @@ export class PaymentController {
         return;
       }
 
-      const { id } = ctx.params;
-      const pago = await PaymentService.obtenerPago(parseInt(id));
+      const body = await ctx.request.body.json();
+      const { payment_intent_id, estado, id_pedido } = body;
 
-      if (!pago) {
+      if (!payment_intent_id || !estado) {
+        ctx.response.status = 400;
+        ctx.response.body = {
+          success: false,
+          error: "Datos incompletos"
+        };
+        return;
+      }
+
+      const success = await (PaymentService as any).confirmarPagoStripe(
+        payment_intent_id,
+        estado as 'succeeded' | 'failed' | 'canceled',
+        id_pedido ? Number(id_pedido) : undefined
+      ) as boolean;
+
+      if (success) {
+        ctx.response.status = 200;
+        ctx.response.body = {
+          success: true,
+          message: "Pago confirmado correctamente"
+        };
+      } else {
         ctx.response.status = 404;
         ctx.response.body = {
           success: false,
-          error: "Pago no encontrado"
+          error: "No se encontró el pago"
         };
-        return;
       }
-
-      // Verificar que el usuario tenga acceso (es su pago o es admin)
-      if (pago.id_usuario !== user.id && user.rol !== 'admin') {
-        ctx.response.status = 403;
-        ctx.response.body = {
-          success: false,
-          error: "No autorizado"
-        };
-        return;
-      }
-
-      ctx.response.status = 200;
-      ctx.response.body = {
-        success: true,
-        data: pago
-      };
     } catch (error) {
-      console.error("Error obteniendo pago:", error);
+      console.error("Error confirmando pago de Stripe:", error);
       ctx.response.status = 500;
       ctx.response.body = {
         success: false,
@@ -111,113 +176,43 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Obtener pagos de un pedido
-   */
-  static async obtenerPagosPorPedido(ctx: RouterContext<"/pagos/pedido/:id_pedido">) {
+  static async stripeWebhook(ctx: Context) {
     try {
-      const user = ctx.state.user;
-      if (!user) {
-        ctx.response.status = 401;
-        ctx.response.body = {
-          success: false,
-          error: "No autenticado"
-        };
+      const webhookSecret = await (PaymentService as any).getStripeWebhookSecret() as string;
+      const signature = ctx.request.headers.get("stripe-signature");
+
+      if (!signature) {
+        ctx.response.status = 400;
+        ctx.response.body = { success: false, error: "Falta firma de Stripe" };
         return;
       }
 
-      const { id_pedido } = ctx.params;
-      const pagos = await PaymentService.obtenerPagosPorPedido(parseInt(id_pedido));
-
-      // ✅ Validar acceso: admin ve todo, consumidor/productor solo sus pedidos
-      if (user.rol !== 'admin' && pagos.length > 0) {
-        // Verificar que el pedido pertenezca al usuario
-        const { PedidosModel } = await import("../Models/PedidosModel.ts");
-        const pedidosModel = new PedidosModel();
-        const pedidos = await pedidosModel.ListarPedidos();
-        const pedido = pedidos.find((p: any) => p.id_pedido === parseInt(id_pedido));
-        
-        if (pedido) {
-          if (user.rol === 'consumidor' && pedido.id_consumidor !== user.id) {
-            ctx.response.status = 403;
-            ctx.response.body = {
-              success: false,
-              error: "No autorizado"
-            };
-            return;
-          }
-          if (user.rol === 'productor' && pedido.id_productor !== user.id) {
-            ctx.response.status = 403;
-            ctx.response.body = {
-              success: false,
-              error: "No autorizado"
-            };
-            return;
-          }
-        }
+      const body = await ctx.request.body.text();
+      
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(body) as Record<string, unknown>;
+      } catch {
+        ctx.response.status = 400;
+        ctx.response.body = { success: false, error: "Body inválido" };
+        return;
       }
 
-      ctx.response.status = 200;
-      ctx.response.body = {
-        success: true,
-        data: pagos,
-        total: pagos.length
-      };
+      const success = await (PaymentService as any).stripeWebhook(event) as boolean;
+
+      if (success) {
+        ctx.response.status = 200;
+        ctx.response.body = { success: true, received: true };
+      } else {
+        ctx.response.status = 500;
+        ctx.response.body = { success: false, error: "Error procesando webhook" };
+      }
     } catch (error) {
-      console.error("Error obteniendo pagos:", error);
+      console.error("Error procesando webhook de Stripe:", error);
       ctx.response.status = 500;
       ctx.response.body = {
         success: false,
-        error: "Error interno del servidor"
-      };
-    }
-  }
-
-  /**
-   * Actualizar estado de pago (solo admin o webhook)
-   */
-  static async actualizarEstadoPago(ctx: Context) {
-    try {
-      const user = ctx.state.user;
-      const body = await ctx.request.body.json();
-      const { id, estado, motivo } = body;
-
-      // Verificar si es webhook (tiene secret) o admin
-      const webhookSecret = ctx.request.headers.get('X-Webhook-Secret');
-      // @ts-ignore - Deno is a global object in Deno runtime
-      const isWebhook = webhookSecret === Deno.env.get("WEBHOOK_SECRET");
-
-      if (!user && !isWebhook) {
-        ctx.response.status = 401;
-        ctx.response.body = {
-          success: false,
-          error: "No autorizado"
-        };
-        return;
-      }
-
-      if (user && user.rol !== 'admin' && !isWebhook) {
-        ctx.response.status = 403;
-        ctx.response.body = {
-          success: false,
-          error: "Solo administradores pueden actualizar estados"
-        };
-        return;
-      }
-
-      await PaymentService.actualizarEstadoPago(parseInt(id), estado, motivo);
-
-      ctx.response.status = 200;
-      ctx.response.body = {
-        success: true,
-        message: "Estado de pago actualizado"
-      };
-    } catch (error) {
-      console.error("Error actualizando estado:", error);
-      ctx.response.status = 500;
-      ctx.response.body = {
-        success: false,
-        error: "Error interno del servidor"
+        error: "Error procesando webhook"
       };
     }
   }

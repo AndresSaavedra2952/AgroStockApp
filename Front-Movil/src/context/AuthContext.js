@@ -289,6 +289,22 @@ export const AuthProvider = ({ children }) => {
     return user?.rol === 'consumidor';
   };
 
+  const updateUser = async (userData) => {
+    try {
+      // Actualizar usuario en el estado
+      const updatedUser = { ...user, ...userData };
+      setUser(updatedUser);
+      
+      // Actualizar en AsyncStorage
+      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error al actualizar usuario:', error);
+      throw error;
+    }
+  };
+
   const value = {
     user,
     token,
@@ -301,6 +317,7 @@ export const AuthProvider = ({ children }) => {
     isProductor,
     isConsumidor,
     setUser,
+    updateUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

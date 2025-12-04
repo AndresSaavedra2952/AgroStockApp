@@ -96,10 +96,10 @@ export default function HomeScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header con botones de Login/Registro si no está autenticado */}
       {!user && (
-        <SafeAreaView edges={['top']} style={styles.headerContainer}>
+        <View style={styles.headerContainer}>
           <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Ionicons name="leaf" size={24} color="#2e7d32" />
@@ -120,7 +120,7 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
           </View>
-        </SafeAreaView>
+        </View>
       )}
       
       <ScrollView
@@ -349,7 +349,7 @@ export default function HomeScreen({ navigation }) {
         </View>
       </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -365,6 +365,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    paddingTop: 10,
   },
   header: {
     flexDirection: 'row',

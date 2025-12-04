@@ -7,6 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 // Screens de Autenticación
 import LoginScreen from '../../Screen/Auth/LoginScreen';
 import RegisterScreen from '../../Screen/Auth/RegisterScreen';
+
+// Screens de Inicio
 import HomeScreen from '../../Screen/Inicio/HomeScreen';
 
 // Screens de Consumidor
@@ -14,15 +16,19 @@ import ProductosScreen from '../../Screen/Productos/ProductosScreen';
 import ProductoDetalleScreen from '../../Screen/Productos/ProductoDetalleScreen';
 import CarritoScreen from '../../Screen/Carrito/CarritoScreen';
 import PedidosScreen from '../../Screen/Pedidos/PedidosScreen';
+import PedidoDetalleScreen from '../../Screen/Pedidos/PedidoDetalleScreen';
 import PerfilScreen from '../../Screen/Perfil/PerfilScreen';
 import MensajesScreen from '../../Screen/Mensajes/MensajesScreen';
 import ChatIndividualScreen from '../../Screen/Mensajes/ChatIndividualScreen';
+import ListaDeseosScreen from '../../Screen/Productos/ListaDeseosScreen';
+import NotificacionesScreen from '../../Screen/Notificaciones/NotificacionesScreen';
 
 // Screens de Productor
 import MisProductosScreen from '../../Screen/Productos/MisProductosScreen';
 import PedidosRecibidosScreen from '../../Screen/Pedidos/PedidosRecibidosScreen';
 import EstadisticasScreen from '../../Screen/Estadisticas/EstadisticasScreen';
 import AlertasStockScreen from '../../Screen/Alertas/AlertasStockScreen';
+import HomeProductorScreen from '../../Screen/Inicio/HomeProductorScreen';
 
 // Componentes comunes
 import LoadingScreen from '../components/LoadingScreen';
@@ -43,8 +49,10 @@ function ConsumidorTabs() {
             iconName = focused ? 'storefront' : 'storefront-outline';
           } else if (route.name === 'Mensajes') {
             iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-          } else if (route.name === 'Pedidos') {
+          } else           if (route.name === 'Pedidos') {
             iconName = focused ? 'receipt' : 'receipt-outline';
+          } else if (route.name === 'ListaDeseos') {
+            iconName = focused ? 'heart' : 'heart-outline';
           } else if (route.name === 'Perfil') {
             iconName = focused ? 'person' : 'person-outline';
           }
@@ -59,6 +67,7 @@ function ConsumidorTabs() {
       <Tab.Screen name="Productos" component={ProductosScreen} />
       <Tab.Screen name="Mensajes" component={MensajesScreen} options={{ title: 'Mensajes' }} />
       <Tab.Screen name="Pedidos" component={PedidosScreen} />
+      <Tab.Screen name="ListaDeseos" component={ListaDeseosScreen} options={{ title: 'Deseos' }} />
       <Tab.Screen name="Perfil" component={PerfilScreen} />
     </Tab.Navigator>
   );
@@ -73,7 +82,9 @@ function ProductorTabs() {
           let iconName;
 
 
-          if (route.name === 'MisProductos') {
+          if (route.name === 'InicioProd') {
+            iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'MisProductos') {
             iconName = focused ? 'cube' : 'cube-outline';
           } else if (route.name === 'PedidosRecibidos') {
             iconName = focused ? 'list' : 'list-outline';
@@ -92,6 +103,7 @@ function ProductorTabs() {
         headerShown: false,
       })}
     >
+      <Tab.Screen name="InicioProd" component={HomeProductorScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="MisProductos" component={MisProductosScreen} options={{ title: 'Mis Productos' }} />
       <Tab.Screen name="PedidosRecibidos" component={PedidosRecibidosScreen} options={{ title: 'Pedidos' }} />
       <Tab.Screen name="Estadisticas" component={EstadisticasScreen} options={{ title: 'Estadísticas' }} />
@@ -162,6 +174,9 @@ export default function AppNavegacion() {
             <Stack.Screen name="ConsumidorMain" component={ConsumidorTabs} />
             <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
             <Stack.Screen name="Carrito" component={CarritoScreen} options={{ headerShown: true, title: 'Carrito de Compras' }} />
+            <Stack.Screen name="ListaDeseos" component={ListaDeseosScreen} options={{ headerShown: true, title: 'Mi Lista de Deseos' }} />
+            <Stack.Screen name="Notificaciones" component={NotificacionesScreen} options={{ headerShown: true, title: 'Notificaciones' }} />
+            <Stack.Screen name="PedidoDetalle" component={PedidoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Pedido' }} />
             <Stack.Screen name="ChatIndividual" component={ChatIndividualScreen} options={{ headerShown: false }} />
           </>
         ) : userRol === 'productor' ? (
@@ -169,7 +184,9 @@ export default function AppNavegacion() {
           <>
             <Stack.Screen name="ProductorMain" component={ProductorTabs} />
             <Stack.Screen name="ProductoDetalle" component={ProductoDetalleScreen} options={{ headerShown: true, title: 'Detalle del Producto' }} />
+            <Stack.Screen name="Productos" component={ProductosScreen} options={{ headerShown: true, title: 'Todos los Productos' }} />
             <Stack.Screen name="AlertasStock" component={AlertasStockScreen} options={{ headerShown: true, title: 'Alertas de Stock' }} />
+            <Stack.Screen name="Notificaciones" component={NotificacionesScreen} options={{ headerShown: true, title: 'Notificaciones' }} />
             <Stack.Screen name="ChatIndividual" component={ChatIndividualScreen} options={{ headerShown: false }} />
           </>
         ) : (

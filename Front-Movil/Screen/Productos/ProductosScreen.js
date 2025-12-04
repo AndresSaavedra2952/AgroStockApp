@@ -9,16 +9,36 @@ import {
   TextInput,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import productosService from '../../src/service/ProductosService';
 import categoriasService from '../../src/service/CategoriasService';
+import { useAuth } from '../../src/context/AuthContext';
+import useCart from '../../src/hooks/useCart';
+import useNotifications from '../../src/hooks/useNotifications';
 
 export default function ProductosScreen({ navigation, route }) {
+  const { isConsumidor, isAuthenticated } = useAuth();
+  const { cantidadItems, refrescar } = useCart();
+  const { totalNoLeidas, refrescar: refrescarNotificaciones } = useNotifications();
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [categoriaFiltro, setCategoriaFiltro] = useState(null);
   const [loading, setLoading] = useState(false);
   const categoriaId = route?.params?.categoriaId;
+
+  // Recargar carrito y notificaciones cuando la pantalla recibe foco
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      // No recargar automáticamente para evitar demasiadas solicitudes
+      // El hook useCart ya maneja las actualizaciones automáticas
+      if (isAuthenticated()) {
+        refrescarNotificaciones();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, isAuthenticated]);
 
   useEffect(() => {
     cargarCategorias();
@@ -110,7 +130,29 @@ export default function ProductosScreen({ navigation, route }) {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Botón de notificaciones - Solo si está autenticado */}
+      {isAuthenticated() && (
+        <View style={styles.notificacionesContainer}>
+          <TouchableOpacity
+            style={styles.notificacionesButton}
+            onPress={() => {
+              navigation.navigate('Notificaciones');
+              refrescarNotificaciones();
+            }}
+          >
+            <Ionicons name="notifications-outline" size={24} color="#333" />
+            {totalNoLeidas > 0 && (
+              <View style={styles.notificacionesBadge}>
+                <Text style={styles.notificacionesBadgeText}>
+                  {totalNoLeidas > 99 ? '99+' : totalNoLeidas}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.header}>
         <TextInput
           style={styles.busqueda}
@@ -131,7 +173,24 @@ export default function ProductosScreen({ navigation, route }) {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={cargarProductos} />}
         contentContainerStyle={styles.list}
       />
-    </View>
+
+      {/* Botón flotante de carrito - Solo para consumidores */}
+      {isConsumidor() && (
+        <TouchableOpacity
+          style={styles.carritoButton}
+          onPress={() => navigation.navigate('Carrito')}
+        >
+          <Ionicons name="cart" size={24} color="#fff" />
+          {cantidadItems > 0 && (
+            <View style={styles.carritoBadge}>
+              <Text style={styles.carritoBadgeText}>
+                {cantidadItems > 99 ? '99+' : cantidadItems}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -140,8 +199,44 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  notificacionesContainer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 15,
+    paddingTop: 10,
+    paddingBottom: 5,
+    alignItems: 'flex-end',
+  },
+  notificacionesButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  notificacionesBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#d32f2f',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  notificacionesBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
   header: {
     padding: 15,
+    paddingTop: 10,
     backgroundColor: '#fff',
     flexDirection: 'row',
     alignItems: 'center',
@@ -208,6 +303,39 @@ const styles = StyleSheet.create({
   productoStock: {
     fontSize: 14,
     color: '#666',
+  },
+  carritoButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#2e7d32',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  carritoBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#d32f2f',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  carritoBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 

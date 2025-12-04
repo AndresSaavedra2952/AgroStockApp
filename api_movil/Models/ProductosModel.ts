@@ -264,7 +264,7 @@ export class ProductosModel {
         }
     }
 
-    public async EditarProducto(imagenData?: string): Promise<{ success: boolean; message: string }> {
+    public async EditarProducto(imagenData?: string, imagenesAdicionales?: (string | string[])[]): Promise<{ success: boolean; message: string }> {
         try {
             if (!this._objProducto || !this._objProducto.id_producto) {
                 throw new Error("No se proporciono un objeto de producto valido.");
@@ -289,7 +289,7 @@ export class ProductosModel {
 
             // Obtener el producto completo antes de actualizar para comparar cambios
             const productoAnterior = await conexion.query(
-                "SELECT nombre, descripcion, precio, stock, stock_minimo, id_usuario, id_categoria, id_ciudad_origen, unidad_medida, imagen_principal, disponible FROM productos WHERE id_producto = ?", 
+                "SELECT nombre, descripcion, precio, stock, stock_minimo, id_usuario, id_categoria, id_ciudad_origen, unidad_medida, imagen_principal, imagenes_adicionales, disponible FROM productos WHERE id_producto = ?", 
                 [id_producto]
             );
             
@@ -350,17 +350,129 @@ export class ProductosModel {
                 }
             }
 
-            // Solo hacer UPDATE si hay cambios o si se guardó una nueva imagen
-            if (hayCambios || imagenGuardada) {
+            // Procesar imágenes adicionales
+            let imagenesAdicionalesFinales: string[] = [];
+            let imagenesAdicionalesGuardadas = false;
+            let imagenesAdicionalesCambiadas = false;
+            
+            // Obtener imágenes adicionales existentes del producto para comparar
+            let imagenesExistentesOriginales: string[] = [];
+            const imagenesActualesOriginales = productoActual.imagenes_adicionales;
+            
+            if (imagenesActualesOriginales) {
+                try {
+                    if (typeof imagenesActualesOriginales === 'string') {
+                        imagenesExistentesOriginales = JSON.parse(imagenesActualesOriginales);
+                    } else if (Array.isArray(imagenesActualesOriginales)) {
+                        imagenesExistentesOriginales = imagenesActualesOriginales;
+                    }
+                } catch (parseError) {
+                    console.warn(`⚠️ [ProductosModel.EditarProducto] Error parseando imagenes_adicionales existentes originales:`, parseError);
+                    imagenesExistentesOriginales = [];
+                }
+            }
+            
+            console.log(`📸 [ProductosModel.EditarProducto] Imágenes existentes originales: ${imagenesExistentesOriginales.length}`);
+            
+            if (imagenesAdicionales && imagenesAdicionales.length > 0) {
+                console.log(`📸 [ProductosModel.EditarProducto] Procesando ${imagenesAdicionales.length} imágenes adicionales recibidas`);
+                
+                // Procesar cada imagen adicional
+                for (let i = 0; i < imagenesAdicionales.length; i++) {
+                    const img = imagenesAdicionales[i];
+                    
+                    if (typeof img === 'string') {
+                        // Si es base64 (nueva imagen), guardarla
+                        if (img.startsWith('data:image/')) {
+                            try {
+                                console.log(`📸 [ProductosModel.EditarProducto] Guardando imagen adicional ${i + 1} (base64, longitud: ${img.length})`);
+                                const rutaImagenAdicional = await this.guardarImagen(id_producto, img);
+                                
+                                // Normalizar la ruta
+                                let rutaNormalizada = rutaImagenAdicional.replace(/\\/g, '/');
+                                if (!rutaNormalizada.startsWith('/uploads')) {
+                                    if (rutaNormalizada.startsWith('uploads')) {
+                                        rutaNormalizada = '/' + rutaNormalizada;
+                                    } else {
+                                        rutaNormalizada = '/uploads/' + rutaNormalizada;
+                                    }
+                                }
+                                
+                                imagenesAdicionalesFinales.push(rutaNormalizada);
+                                imagenesAdicionalesGuardadas = true;
+                                imagenesAdicionalesCambiadas = true;
+                                console.log(`✅ [ProductosModel.EditarProducto] Imagen adicional ${i + 1} guardada: ${rutaNormalizada}`);
+                            } catch (imgError) {
+                                console.error(`❌ [ProductosModel.EditarProducto] Error guardando imagen adicional ${i + 1}:`, imgError);
+                                // Continuar con las demás imágenes aunque falle una
+                            }
+                        } else {
+                            // Es una ruta existente, agregarla directamente
+                            let rutaNormalizada = img.replace(/\\/g, '/');
+                            if (!rutaNormalizada.startsWith('/uploads')) {
+                                if (rutaNormalizada.startsWith('uploads')) {
+                                    rutaNormalizada = '/' + rutaNormalizada;
+                                } else {
+                                    rutaNormalizada = '/uploads/' + rutaNormalizada;
+                                }
+                            }
+                            imagenesAdicionalesFinales.push(rutaNormalizada);
+                            console.log(`✅ [ProductosModel.EditarProducto] Imagen adicional ${i + 1} (existente) agregada: ${rutaNormalizada}`);
+                        }
+                    }
+                }
+                
+                // Comparar si las imágenes finales son diferentes de las originales
+                const imagenesOriginalesStr = JSON.stringify(imagenesExistentesOriginales.sort());
+                const imagenesFinalesStr = JSON.stringify(imagenesAdicionalesFinales.sort());
+                if (imagenesOriginalesStr !== imagenesFinalesStr) {
+                    imagenesAdicionalesCambiadas = true;
+                    console.log(`📸 [ProductosModel.EditarProducto] Las imágenes adicionales han cambiado`);
+                }
+                
+                console.log(`📸 [ProductosModel.EditarProducto] Total de imágenes adicionales finales: ${imagenesAdicionalesFinales.length}`);
+            } else {
+                // Si se envía un array vacío explícitamente, limpiar las imágenes
+                // Pero solo si realmente se envió el campo (no undefined)
+                if (imagenesAdicionales !== undefined) {
+                    imagenesAdicionalesFinales = [];
+                    imagenesAdicionalesCambiadas = true;
+                    console.log(`📸 [ProductosModel.EditarProducto] Array vacío recibido, limpiando imágenes adicionales`);
+                } else {
+                    // Si no se enviaron imágenes adicionales, mantener las existentes
+                    imagenesAdicionalesFinales = imagenesExistentesOriginales;
+                    console.log(`📸 [ProductosModel.EditarProducto] No se enviaron imágenes adicionales, manteniendo las existentes: ${imagenesAdicionalesFinales.length}`);
+                }
+            }
+            
+            // Convertir el array a JSON string para guardarlo en la BD
+            const imagenesAdicionalesJSON = JSON.stringify(imagenesAdicionalesFinales);
+            
+            console.log(`📸 [ProductosModel.EditarProducto] ========== RESUMEN ANTES DE UPDATE ==========`);
+            console.log(`📸 [ProductosModel.EditarProducto] Imágenes adicionales finales:`, imagenesAdicionalesFinales);
+            console.log(`📸 [ProductosModel.EditarProducto] JSON a guardar:`, imagenesAdicionalesJSON);
+            console.log(`📸 [ProductosModel.EditarProducto] hayCambios: ${hayCambios}, imagenGuardada: ${imagenGuardada}, imagenesAdicionalesGuardadas: ${imagenesAdicionalesGuardadas}, imagenesAdicionalesCambiadas: ${imagenesAdicionalesCambiadas}`);
+            
+            // Solo hacer UPDATE si hay cambios o si se guardó una nueva imagen o nuevas imágenes adicionales o si cambiaron las imágenes adicionales
+            if (hayCambios || imagenGuardada || imagenesAdicionalesGuardadas || imagenesAdicionalesCambiadas) {
                 const result = await conexion.execute(
-                    `UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, disponible = ? WHERE id_producto = ?`,
-                    [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, disponible !== false ? 1 : 0, id_producto]
+                    `UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, stock_minimo = ?, id_usuario = ?, id_categoria = ?, id_ciudad_origen = ?, unidad_medida = ?, imagen_principal = ?, imagenes_adicionales = ?, disponible = ? WHERE id_producto = ?`,
+                    [nombre, descripcion || null, precio, stock, stock_minimo || 5, id_usuario, id_categoria || null, id_ciudad_origen || null, unidad_medida || 'kg', rutaImagen, imagenesAdicionalesJSON, disponible !== false ? 1 : 0, id_producto]
                 );
 
                 console.log(`📊 [ProductosModel.EditarProducto] Resultado del UPDATE:`, {
                     affectedRows: result?.affectedRows,
                     result: result
                 });
+                
+                // Verificar que se guardó correctamente
+                const productoVerificado = await conexion.query(
+                    "SELECT imagenes_adicionales FROM productos WHERE id_producto = ?",
+                    [id_producto]
+                );
+                if (productoVerificado.length > 0) {
+                    console.log(`📸 [ProductosModel.EditarProducto] ✅ Verificación: imagenes_adicionales guardadas en BD:`, productoVerificado[0].imagenes_adicionales);
+                }
 
                 // Si el precio cambió, registrar en historial de precios
                 if (precioAnterior !== null && precio !== undefined && precioAnterior !== precio) {
@@ -384,9 +496,14 @@ export class ProductosModel {
                 // MySQL puede devolver affectedRows: 0 si los valores no cambiaron, pero eso no significa error
                 if (result) {
                     await conexion.execute("COMMIT");
-                    const mensaje = imagenGuardada 
-                        ? "Producto e imagen actualizados exitosamente." 
-                        : "Producto editado exitosamente.";
+                    let mensaje = "Producto editado exitosamente.";
+                    if (imagenGuardada && imagenesAdicionalesGuardadas) {
+                        mensaje = "Producto, imagen principal e imágenes adicionales actualizados exitosamente.";
+                    } else if (imagenGuardada) {
+                        mensaje = "Producto e imagen principal actualizados exitosamente.";
+                    } else if (imagenesAdicionalesGuardadas) {
+                        mensaje = `Producto e imágenes adicionales actualizados exitosamente (${imagenesAdicionalesFinales.length} imágenes).`;
+                    }
                     console.log(`✅ [ProductosModel.EditarProducto] ${mensaje}`);
                     return {
                         success: true,
@@ -401,7 +518,7 @@ export class ProductosModel {
                     };
                 }
             } else {
-                // No hay cambios y no hay nueva imagen
+                // No hay cambios y no hay nueva imagen ni nuevas imágenes adicionales
                 await conexion.execute("ROLLBACK");
                 console.log(`ℹ️ [ProductosModel.EditarProducto] No hay cambios para actualizar`);
                 return {

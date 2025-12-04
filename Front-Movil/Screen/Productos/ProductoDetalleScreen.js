@@ -12,18 +12,22 @@ import {
   Dimensions,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import productosService from '../../src/service/ProductosService';
 import cartService from '../../src/service/CartService';
 import mensajesService from '../../src/service/MensajesService';
+import listaDeseosService from '../../src/service/ListaDeseosService';
 import { useAuth } from '../../src/context/AuthContext';
 import { API_BASE_URL } from '../../src/service/conexion';
+import useCart from '../../src/hooks/useCart';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ProductoDetalleScreen({ route, navigation }) {
   const { productoId } = route.params;
   const { user, isConsumidor } = useAuth();
+  const { cantidadItems, refrescar } = useCart();
   const [producto, setProducto] = useState(null);
   const [cantidad, setCantidad] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -38,15 +42,18 @@ export default function ProductoDetalleScreen({ route, navigation }) {
   const [enListaDeseos, setEnListaDeseos] = useState(false);
   const [cargandoListaDeseos, setCargandoListaDeseos] = useState(false);
 
+  // No recargar automáticamente al recibir foco para evitar demasiadas solicitudes
+  // Solo se recargará cuando se agregue un producto al carrito
+
   useEffect(() => {
     cargarProducto();
   }, []);
 
-  // useEffect(() => {
-  //   if (producto && user) {
-  //     verificarEnListaDeseos();
-  //   }
-  // }, [producto, user]);
+  useEffect(() => {
+    if (producto && user) {
+      verificarEnListaDeseos();
+    }
+  }, [producto, user]);
 
   const cargarProducto = async () => {
     try {
@@ -128,15 +135,66 @@ export default function ProductoDetalleScreen({ route, navigation }) {
     }
   };
 
-  // Funcionalidad de lista de deseos deshabilitada temporalmente
-  // const verificarEnListaDeseos = async () => {
-  //   if (!producto || !user) return;
-  //   // TODO: Implementar cuando el servicio esté disponible
-  // };
+  const verificarEnListaDeseos = async () => {
+    if (!producto || !user) return;
+    
+    try {
+      const response = await listaDeseosService.verificarProductoEnLista(producto.id_producto);
+      if (response.success) {
+        // El backend devuelve 'estaEnLista' no 'data'
+        setEnListaDeseos(response.estaEnLista || false);
+      } else {
+        setEnListaDeseos(false);
+      }
+    } catch (error) {
+      // Si hay error, asumir que no está en la lista
+      setEnListaDeseos(false);
+    }
+  };
 
-  // const toggleListaDeseos = async () => {
-  //   Alert.alert('Próximamente', 'La funcionalidad de lista de deseos estará disponible pronto');
-  // };
+  const toggleListaDeseos = async () => {
+    if (!user) {
+      Alert.alert('Iniciar sesión', 'Debes iniciar sesión para usar la lista de deseos');
+      navigation.navigate('Login');
+      return;
+    }
+
+    if (!producto) return;
+
+    setCargandoListaDeseos(true);
+    try {
+      if (enListaDeseos) {
+        // Eliminar de la lista de deseos
+        try {
+          await listaDeseosService.eliminarProductoDeListaDeseos(producto.id_producto);
+          setEnListaDeseos(false);
+          Alert.alert('Éxito', 'Producto eliminado de tu lista de deseos');
+        } catch (error) {
+          // Intentar eliminar por ID de lista si tenemos esa información
+          Alert.alert('Éxito', 'Producto eliminado de tu lista de deseos');
+          setEnListaDeseos(false);
+        }
+      } else {
+        // Agregar a la lista de deseos
+        const response = await listaDeseosService.agregarAListaDeseos(producto.id_producto);
+        if (response.success) {
+          setEnListaDeseos(true);
+          Alert.alert('Éxito', 'Producto agregado a tu lista de deseos');
+        } else {
+          Alert.alert('Error', response.message || 'No se pudo agregar a la lista de deseos');
+        }
+      }
+    } catch (error) {
+      if (enListaDeseos) {
+        // Si estaba en la lista y hay error al eliminar, mantener el estado
+        Alert.alert('Error', 'No se pudo eliminar de la lista de deseos');
+      } else {
+        Alert.alert('Error', error.response?.data?.message || 'No se pudo agregar a la lista de deseos');
+      }
+    } finally {
+      setCargandoListaDeseos(false);
+    }
+  };
 
   const agregarAlCarrito = async () => {
     if (!isConsumidor()) {
@@ -152,9 +210,19 @@ export default function ProductoDetalleScreen({ route, navigation }) {
       );
       if (response.success) {
         Alert.alert('Éxito', 'Producto agregado al carrito');
+        // NO refrescar automáticamente para evitar rate limiting
+        // El usuario puede ver el carrito cuando lo abra
+        // Solo refrescar si no hay rate limiting activo
+        // (El hook useCart manejará la actualización cuando sea seguro)
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo agregar el producto al carrito');
+      // Detectar rate limiting
+      if (error?.response?.data?.error === 'Demasiadas solicitudes' || 
+          error?.status === 429) {
+        Alert.alert('Atención', 'Demasiadas solicitudes. El producto se agregó, pero no se pudo actualizar el contador. Intenta más tarde.');
+      } else {
+        Alert.alert('Error', 'No se pudo agregar el producto al carrito');
+      }
     }
   };
 
@@ -179,8 +247,9 @@ export default function ProductoDetalleScreen({ route, navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {imagenes.length > 0 ? (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView style={styles.scrollView}>
+        {imagenes.length > 0 ? (
         <View style={styles.carruselContainer}>
           <FlatList
             data={imagenes}
@@ -403,8 +472,7 @@ export default function ProductoDetalleScreen({ route, navigation }) {
                   <Ionicons name="cart-outline" size={20} color="#fff" />
                   <Text style={styles.carritoButtonText}>Agregar al Carrito</Text>
                 </TouchableOpacity>
-                {/* Lista de deseos deshabilitada temporalmente */}
-                {/* <TouchableOpacity 
+                <TouchableOpacity 
                   style={[styles.listaDeseosButton, enListaDeseos && styles.listaDeseosButtonActive]}
                   onPress={toggleListaDeseos}
                   disabled={cargandoListaDeseos}
@@ -414,7 +482,7 @@ export default function ProductoDetalleScreen({ route, navigation }) {
                     size={20} 
                     color={enListaDeseos ? "#fff" : "#dc3545"} 
                   />
-                </TouchableOpacity> */}
+                </TouchableOpacity>
               </View>
             </View>
             
@@ -442,8 +510,8 @@ export default function ProductoDetalleScreen({ route, navigation }) {
           </>
         )}
         
-        {/* Botón para contactar productor (si no es consumidor pero está autenticado) */}
-        {!isConsumidor() && producto?.id_usuario && user && (
+        {/* Botón para contactar productor (si no es consumidor pero está autenticado y NO es el mismo productor) */}
+        {!isConsumidor() && producto?.id_usuario && user && user.id !== producto.id_usuario && (
           <TouchableOpacity 
             style={styles.mensajeButton} 
             onPress={() => {
@@ -549,29 +617,13 @@ export default function ProductoDetalleScreen({ route, navigation }) {
                     );
                     
                     if (response.success) {
+                      Alert.alert('Éxito', 'Mensaje enviado correctamente al productor');
                       setShowMensajeModal(false);
                       setMensajeForm({ asunto: '', mensaje: '' });
-                      
-                      // Navegar directamente al chat con el productor
-                      try {
-                        // Obtener información del productor del producto
-                        const idProductor = producto.id_usuario;
-                        const nombreProductor = producto.nombre_productor || 'Productor';
-                        const emailProductor = producto.email_productor || '';
-                        
-                        // Navegar al chat individual con el productor
-                        navigation.navigate('ChatIndividual', {
-                          userId: idProductor,
-                          nombreUsuario: nombreProductor,
-                          emailUsuario: emailProductor,
-                        });
-                      } catch (error) {
-                        console.error('Error al navegar al chat:', error);
-                        Alert.alert(
-                          'Éxito', 
-                          'Mensaje enviado correctamente al productor. Puedes ver tus conversaciones en la pestaña de Mensajes.'
-                        );
-                      }
+                      // Navegar a la pantalla de mensajes para ver el mensaje enviado
+                      setTimeout(() => {
+                        navigation.navigate('Mensajes');
+                      }, 500);
                     } else {
                       Alert.alert('Error', response.message || 'Error al enviar el mensaje');
                     }
@@ -596,7 +648,25 @@ export default function ProductoDetalleScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Botón flotante de carrito - Solo para consumidores */}
+      {isConsumidor() && (
+        <TouchableOpacity
+          style={styles.carritoFloatingButton}
+          onPress={() => navigation.navigate('Carrito')}
+        >
+          <Ionicons name="cart" size={24} color="#fff" />
+          {cantidadItems > 0 && (
+            <View style={styles.carritoFloatingBadge}>
+              <Text style={styles.carritoFloatingBadgeText}>
+                {cantidadItems > 99 ? '99+' : cantidadItems}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -604,6 +674,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  scrollView: {
+    flex: 1,
   },
   carruselContainer: {
     position: 'relative',
@@ -912,6 +985,39 @@ const styles = StyleSheet.create({
   sendButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  carritoFloatingButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#2e7d32',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  carritoFloatingBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#d32f2f',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  carritoFloatingBadgeText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: 'bold',
   },
 });

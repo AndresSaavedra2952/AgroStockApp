@@ -234,13 +234,21 @@ export class ListaDeseosController {
   static async VerificarProductoEnLista(ctx: RouterContext<"/lista-deseos/producto/:id_producto/verificar">) {
     try {
       const user = ctx.state.user;
+      console.log(`[VerificarProductoEnLista] 🔍 Iniciando verificación`);
+      console.log(`[VerificarProductoEnLista] Usuario completo:`, JSON.stringify(user, null, 2));
+      console.log(`[VerificarProductoEnLista] Ruta: ${ctx.request.method} ${ctx.request.url.pathname}`);
+      
       if (!user || !user.id) {
+        console.log(`[VerificarProductoEnLista] ❌ Usuario no autenticado`);
         ctx.response.status = 401;
         ctx.response.body = { success: false, error: "No autenticado" };
         return;
       }
+      
+      console.log(`[VerificarProductoEnLista] ✅ Usuario autenticado: ID=${user.id}, Rol=${user.rol}`);
 
       const { id_producto } = ctx.params;
+      console.log(`[VerificarProductoEnLista] Verificando producto ${id_producto} para usuario ${user.id}`);
 
       if (!id_producto) {
         ctx.response.status = 400;
@@ -251,6 +259,7 @@ export class ListaDeseosController {
       const listaDeseosModel = new ListaDeseosModel({} as ListaDeseoCreateData);
       const estaEnLista = await listaDeseosModel.VerificarProductoEnLista(parseInt(id_producto), user.id);
 
+      console.log(`[VerificarProductoEnLista] ✅ Resultado: ${estaEnLista}`);
       ctx.response.status = 200;
       ctx.response.body = {
         success: true,

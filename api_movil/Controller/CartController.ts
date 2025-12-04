@@ -3,6 +3,7 @@ import { z } from "../Dependencies/dependencias.ts";
 import { cartService } from "../Services/CartService.ts";
 import { notificationService } from "../Services/NotificationService.ts";
 import { emailService } from "../Services/EmailService.ts";
+import type { PaymentResponse } from "../Services/PaymentService.ts";
 
 // Esquemas de validación
 const addToCartSchema = z.object({
@@ -335,17 +336,90 @@ export class CartController {
         return;
       }
 
-      // Procesar checkout
-      const result = await cartService.convertCartToOrder(
-        user.id,
-        validated.direccionEntrega,
-        validated.notas || '',
-        validated.metodo_pago
-      );
+      const totalPrecio = validation.items_validated.reduce((sum, item) => sum + item.precio_total, 0);
+      const requiereStripe = validated.metodo_pago !== 'efectivo';
 
-      if (result.success) {
-        // Obtener información del pedido para notificaciones
-        const { conexion } = await import("../Models/Conexion.ts");
+      const { conexion } = await import("../Models/Conexion.ts");
+
+      try {
+        await conexion.execute("START TRANSACTION");
+
+        const result = await (cartService as any).convertCartToOrder(
+          user.id,
+          validated.direccionEntrega,
+          validated.notas || '',
+          validated.metodo_pago,
+          false
+        ) as { success: boolean; message: string; pedido_id?: number; pedidos_ids?: number[] };
+
+        if (!result.success) {
+          await conexion.execute("ROLLBACK");
+          ctx.response.status = 400;
+          ctx.response.body = {
+            success: false,
+            error: "Error al procesar pedido",
+            message: result.message
+          };
+          return;
+        }
+
+        const pedidosCreados = (result as { pedidos_ids?: number[] }).pedidos_ids || [result.pedido_id!].filter(Boolean);
+        let pagoResponse: PaymentResponse | null = null;
+
+        if (requiereStripe) {
+          const { PaymentService } = await import("../Services/PaymentService.ts");
+          
+          try {
+            const pagoResult = await PaymentService.crearPago({
+              id_pedido: result.pedido_id!,
+              id_usuario: user.id,
+              monto: totalPrecio,
+              metodo_pago: validated.metodo_pago as 'tarjeta' | 'efectivo' | 'transferencia',
+              pasarela: 'stripe'
+            });
+            
+            pagoResponse = pagoResult as PaymentResponse;
+
+            const pagoResponseTyped = pagoResponse as PaymentResponse;
+            if (!pagoResponseTyped.success || !pagoResponseTyped.datos_adicionales?.client_secret) {
+              await conexion.execute("ROLLBACK");
+              ctx.response.status = 400;
+              ctx.response.body = {
+                success: false,
+                error: "Error al inicializar el pago",
+                message: pagoResponseTyped.error || "No se pudo inicializar el pago. Por favor, intenta nuevamente."
+              };
+              return;
+            }
+
+            for (const pedidoId of pedidosCreados) {
+              await conexion.execute(
+                `UPDATE pedidos SET estado_pago = 'pendiente' WHERE id_pedido = ?`,
+                [pedidoId]
+              );
+            }
+          } catch (error) {
+            await conexion.execute("ROLLBACK");
+            console.error("Error al inicializar pago:", error);
+            ctx.response.status = 400;
+            ctx.response.body = {
+              success: false,
+              error: "Error al inicializar el pago",
+              message: error instanceof Error ? error.message : "No se pudo inicializar el pago. Por favor, intenta nuevamente."
+            };
+            return;
+          }
+        } else {
+          for (const pedidoId of pedidosCreados) {
+            await conexion.execute(
+              `UPDATE pedidos SET estado_pago = 'pendiente' WHERE id_pedido = ?`,
+              [pedidoId]
+            );
+          }
+        }
+
+        await conexion.execute("COMMIT");
+
         const pedido = await conexion.query(
           `SELECT p.*, u.nombre as nombre_productor, u.email as email_productor
            FROM pedidos p
@@ -362,8 +436,7 @@ export class CartController {
           [result.pedido_id]
         );
 
-        // Notificar al productor
-        if (pedido.length > 0) {
+        if (pedido.length > 0 && !requiereStripe) {
           await notificationService.notifyNewOrder(
             pedido[0].id_productor,
             result.pedido_id!,
@@ -380,37 +453,61 @@ export class CartController {
           );
         }
 
-        // Notificar al consumidor
-        await notificationService.createNotification({
-          id_usuario: user.id,
-          titulo: "🛒 Pedido Realizado",
-          mensaje: `Tu pedido #${result.pedido_id} ha sido procesado exitosamente`,
-          tipo: 'success',
-          datos_extra: {
-            pedido_id: result.pedido_id,
-            action: 'view_order'
-          }
-        });
+        if (!requiereStripe) {
+          // Notificar al consumidor
+          await notificationService.createNotification({
+            id_usuario: user.id,
+            titulo: "🛒 Pedido Completado",
+            mensaje: `Tu pedido #${result.pedido_id} ha sido creado exitosamente. El pago está pendiente ya que seleccionaste pago en efectivo. El productor confirmará el pago cuando lo reciba.`,
+            tipo: 'info',
+            datos_extra: {
+              pedido_id: result.pedido_id,
+              action: 'view_order'
+            }
+          });
+        } else if (pagoResponse && pagoResponse.estado_pago === 'pagado') {
+          await notificationService.createNotification({
+            id_usuario: user.id,
+            titulo: "🛒 Pedido Realizado",
+            mensaje: `Tu pedido #${result.pedido_id} ha sido procesado exitosamente`,
+            tipo: 'success',
+            datos_extra: {
+              pedido_id: result.pedido_id,
+              action: 'view_order'
+            }
+          });
+        }
+
+        const pagoResponseTyped = pagoResponse as PaymentResponse;
+        const pagoData = requiereStripe && pagoResponseTyped && pagoResponseTyped.success && pagoResponseTyped.datos_adicionales?.client_secret ? {
+          id_pago: pagoResponseTyped.id_pago,
+          estado_pago: pagoResponseTyped.estado_pago,
+          referencia_pago: pagoResponseTyped.referencia_pago,
+          client_secret: pagoResponseTyped.datos_adicionales.client_secret,
+          payment_intent_id: pagoResponseTyped.datos_adicionales.payment_intent_id
+        } : requiereStripe && pagoResponseTyped && !pagoResponseTyped.success ? {
+          error: pagoResponseTyped.error || 'Error desconocido al crear el pago',
+          estado_pago: 'pendiente'
+        } : null;
 
         ctx.response.status = 201;
         ctx.response.body = {
           success: true,
-          message: result.message,
+          message: requiereStripe
+            ? (pagoResponse?.success ? "Pedido creado. Completa el pago para finalizar." : "Pedido creado pero hubo un error al inicializar el pago.")
+            : result.message,
           data: {
             pedido_id: result.pedido_id,
             total_items: validation.items_validated.length,
-            total_precio: validation.items_validated.reduce((sum, item) => sum + item.precio_total, 0),
+            total_precio: totalPrecio,
             metodo_pago: validated.metodo_pago,
-            direccion_entrega: validated.direccionEntrega
+            direccion_entrega: validated.direccionEntrega,
+            pago: pagoData
           }
         };
-      } else {
-        ctx.response.status = 400;
-        ctx.response.body = {
-          success: false,
-          error: "Error al procesar pedido",
-          message: result.message
-        };
+      } catch (error) {
+        await conexion.execute("ROLLBACK");
+        throw error;
       }
     } catch (error) {
       console.error("Error en checkout:", error);

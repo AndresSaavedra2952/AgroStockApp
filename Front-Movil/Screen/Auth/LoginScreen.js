@@ -86,25 +86,6 @@ export default function LoginScreen({ navigation }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Botón de retroceso */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              try {
-                if (navigation.canGoBack()) {
-                  navigation.goBack();
-                } else {
-                  navigation.navigate('HomePublic');
-                }
-              } catch (error) {
-                console.error('Error al navegar hacia atrás:', error);
-                navigation.navigate('HomePublic');
-              }
-            }}
-          >
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
-
           {/* Logo */}
           <View style={styles.logoContainer}>
             <Image
@@ -181,20 +162,7 @@ export default function LoginScreen({ navigation }) {
             {/* Link Registro */}
             <View style={styles.registerContainer}>
               <Text style={styles.registerText}>¿No tienes cuenta? </Text>
-              <TouchableOpacity onPress={() => {
-                try {
-                  if (navigation.canGoBack() || navigation.getState) {
-                    navigation.navigate('Register');
-                  } else {
-                    // Fallback: intentar navegar de todas formas
-                    navigation.navigate('Register');
-                  }
-                } catch (error) {
-                  console.error('Error al navegar a Register:', error);
-                  // Si falla, intentar ir a HomePublic y luego a Register
-                  navigation.navigate('HomePublic');
-                }
-              }}>
+              <TouchableOpacity onPress={() => navigation.navigate('Register')}>
                 <Text style={styles.registerLink}>Regístrate aquí</Text>
               </TouchableOpacity>
             </View>
@@ -313,19 +281,5 @@ const styles = StyleSheet.create({
     color: '#2e7d32',
     fontSize: 14,
     fontWeight: 'bold',
-  },
-  backButton: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    zIndex: 10,
-    padding: 8,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
   },
 });

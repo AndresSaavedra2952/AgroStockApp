@@ -10,8 +10,8 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import pedidosService from '../../src/service/PedidosService';
-import mensajesService from '../../src/service/MensajesService';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function PedidosRecibidosScreen({ navigation }) {
@@ -226,7 +226,7 @@ export default function PedidosRecibidosScreen({ navigation }) {
   const pedidosEntregados = pedidos.filter(p => p.estado === 'entregado').length;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header con estadísticas */}
       <View style={styles.header}>
         <View style={styles.statsRow}>
@@ -414,7 +414,7 @@ export default function PedidosRecibidosScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -426,6 +426,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#fff',
     paddingVertical: 15,
+    paddingTop: 20,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',

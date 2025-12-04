@@ -51,13 +51,30 @@ export function AuthMiddleware(rolesPermitidos: string[] = []) {
       // 🚨 Validar roles si el endpoint requiere alguno
       // ✅ ADMIN siempre tiene acceso completo (bypass de restricciones)
       if (rolesPermitidos.length > 0 && payload.rol !== 'admin' && !rolesPermitidos.includes(payload.rol)) {
+        console.log(`[AuthMiddleware] ❌ Acceso denegado`);
+        console.log(`   - Ruta: ${ctx.request.method} ${ctx.request.url.pathname}`);
+        console.log(`   - Usuario ID: ${payload.id || payload.id_usuario || 'N/A'}`);
+        console.log(`   - Rol del usuario: ${payload.rol}`);
+        console.log(`   - Roles permitidos: ${rolesPermitidos.join(', ')}`);
+        console.log(`   - Payload completo:`, JSON.stringify(payload, null, 2));
         ctx.response.status = 403;
         ctx.response.body = { 
           success: false,
           error: "FORBIDDEN",
-          message: "No tienes permisos para acceder a este recurso" 
+          message: "No tienes permisos para acceder a este recurso",
+          debug: {
+            user_rol: payload.rol,
+            user_id: payload.id || payload.id_usuario,
+            allowed_roles: rolesPermitidos,
+            route: `${ctx.request.method} ${ctx.request.url.pathname}`
+          }
         };
         return;
+      }
+      
+      // Log de acceso exitoso para debugging
+      if (rolesPermitidos.length > 0) {
+        console.log(`[AuthMiddleware] ✅ Acceso permitido - Rol: ${payload.rol}, Ruta: ${ctx.request.method} ${ctx.request.url.pathname}`);
       }
 
       await next();

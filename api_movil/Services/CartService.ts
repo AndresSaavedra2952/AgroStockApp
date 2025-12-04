@@ -36,21 +36,28 @@ export class CartService {
     try {
       const result = await conexion.query(
         `SELECT 
-           c.*,
-           p.nombre as producto_nombre,
-           p.precio as precio_actual,
-           p.stock as stock_actual,
-           p.disponible as producto_disponible,
+           c.id_producto,
+           c.cantidad,
+           c.fecha_agregado,
+           COALESCE(p.nombre, 'Producto eliminado') as producto_nombre,
+           COALESCE(p.precio, 0) as precio_actual,
+           COALESCE(p.stock, 0) as stock_actual,
+           COALESCE(p.disponible, 0) as producto_disponible,
            p.imagen_principal,
-           CASE WHEN p.stock >= c.cantidad AND p.disponible = 1 THEN 1 ELSE 0 END as disponible
+           CASE WHEN p.id_producto IS NULL THEN 0
+                WHEN p.stock >= c.cantidad AND p.disponible = 1 THEN 1 
+                ELSE 0 END as disponible
          FROM carrito c
-         INNER JOIN productos p ON c.id_producto = p.id_producto
+         LEFT JOIN productos p ON c.id_producto = p.id_producto
          WHERE c.id_usuario = ?
          ORDER BY c.fecha_agregado DESC`,
         [id_usuario]
       );
 
+      console.log(`[CartService.getUserCart] Usuario ${id_usuario}: ${result.length} items encontrados en carrito`);
+
       if (result.length === 0) {
+        console.log(`[CartService.getUserCart] Carrito vacío para usuario ${id_usuario}`);
         return null;
       }
 
@@ -274,7 +281,10 @@ export class CartService {
     try {
       const cart = await this.getUserCart(id_usuario);
       
-      if (!cart || cart.items.length === 0) {
+      console.log(`[CartService.validateCart] Usuario ${id_usuario}: cart = ${cart ? 'existe' : 'null'}, items = ${cart?.items?.length || 0}`);
+      
+      if (!cart || !cart.items || cart.items.length === 0) {
+        console.log(`[CartService.validateCart] Carrito vacío o inválido para usuario ${id_usuario}`);
         return {
           valid: false,
           errors: ["El carrito está vacío"],
@@ -338,7 +348,7 @@ export class CartService {
   /**
    * Convierte el carrito en un pedido
    */
-  async convertCartToOrder(id_usuario: number, direccionEntrega: string, notas: string, metodo_pago: string): Promise<{ success: boolean; message: string; pedido_id?: number }> {
+  async convertCartToOrder(id_usuario: number, direccionEntrega: string, notas: string, metodo_pago: string, manejarTransaccion: boolean = true): Promise<{ success: boolean; message: string; pedido_id?: number; pedidos_ids?: number[] }> {
     try {
       // Validar carrito
       const validation = await this.validateCart(id_usuario);
@@ -350,7 +360,9 @@ export class CartService {
         };
       }
 
-      await conexion.execute("START TRANSACTION");
+      if (manejarTransaccion) {
+        await conexion.execute("START TRANSACTION");
+      }
 
       // Agrupar productos por productor
       const productosPorProductor = new Map<number, CartItem[]>();
@@ -411,15 +423,20 @@ export class CartService {
       // Vaciar carrito
       await this.clearCart(id_usuario);
 
-      await conexion.execute("COMMIT");
+      if (manejarTransaccion) {
+        await conexion.execute("COMMIT");
+      }
 
       return {
         success: true,
         message: `Pedido${pedidosCreados.length > 1 ? 's' : ''} creado${pedidosCreados.length > 1 ? 's' : ''} correctamente`,
-        pedido_id: pedidosCreados[0] // Retornar el primer pedido para compatibilidad
+        pedido_id: pedidosCreados[0], // Retornar el primer pedido para compatibilidad
+        pedidos_ids: pedidosCreados // Retornar todos los IDs de pedidos creados
       };
     } catch (error) {
-      await conexion.execute("ROLLBACK");
+      if (manejarTransaccion) {
+        await conexion.execute("ROLLBACK");
+      }
       console.error("Error al convertir carrito en pedido:", error);
       return {
         success: false,

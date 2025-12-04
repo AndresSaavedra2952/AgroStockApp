@@ -880,9 +880,48 @@ export class AdminController {
         return;
       }
 
+      const [pedidoActual] = await conexion.query(
+        "SELECT estado, id_consumidor FROM pedidos WHERE id_pedido = ?",
+        [parseInt(id_pedido)]
+      ) as Array<{ estado: string; id_consumidor: number }>;
+      
+      if (!pedidoActual) {
+        ctx.response.status = 404;
+        ctx.response.body = { success: false, error: "NOT_FOUND", message: "Pedido no encontrado" };
+        return;
+      }
+      
       const result = await conexion.execute("UPDATE pedidos SET estado = ? WHERE id_pedido = ?", [estado, parseInt(id_pedido)]);
       
       if (result && result.affectedRows && result.affectedRows > 0) {
+        if (pedidoActual.estado !== estado && pedidoActual.id_consumidor) {
+          const { NotificationService } = await import("../Services/NotificationService.ts");
+          const notificationService = new NotificationService();
+          
+          const mensajesEstado: Record<string, string> = {
+            'confirmado': 'Tu pedido #' + id_pedido + ' ha sido confirmado. El productor comenzará a prepararlo pronto.',
+            'en_preparacion': 'Tu pedido #' + id_pedido + ' está siendo preparado. ¡Pronto estará listo!',
+            'en_camino': '¡Excelente noticia! Tu pedido #' + id_pedido + ' está en camino hacia ti.',
+            'entregado': '¡Tu pedido #' + id_pedido + ' ha sido entregado! Esperamos que disfrutes tus productos.',
+            'cancelado': 'Tu pedido #' + id_pedido + ' ha sido cancelado. Si tienes dudas, contacta al soporte.'
+          };
+          
+          const mensaje = mensajesEstado[estado] || 'El estado de tu pedido #' + id_pedido + ' ha cambiado a ' + estado + '.';
+          
+          await notificationService.createNotification({
+            id_usuario: pedidoActual.id_consumidor,
+            titulo: "📦 Actualización de Pedido",
+            mensaje: mensaje,
+            tipo: estado === 'cancelado' ? 'warning' : 'info',
+            datos_extra: {
+              pedido_id: parseInt(id_pedido),
+              estado_anterior: pedidoActual.estado,
+              estado_nuevo: estado,
+              action: 'view_order'
+            }
+          });
+        }
+        
         ctx.response.status = 200;
         ctx.response.body = { success: true, message: "Estado del pedido actualizado" };
       } else {

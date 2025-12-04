@@ -382,13 +382,54 @@ export const putPedido = async (ctx: RouterContext<"/pedidos/:id">) => {
     // Si solo se envía el estado, hacer actualización parcial
     if (bodyKeys.length === 1 && bodyKeys[0] === 'estado') {
       try {
-        // Actualización solo de estado (más rápido y simple)
         const estadoValido = z.enum(["pendiente", "confirmado", "en_preparacion", "en_camino", "entregado", "cancelado"]).parse(body.estado);
+        
+        const [pedidoActual] = await conexion.query(
+          "SELECT estado, id_consumidor FROM pedidos WHERE id_pedido = ?",
+          [id_pedido]
+        ) as Array<{ estado: string; id_consumidor: number }>;
+        
+        if (!pedidoActual) {
+          ctx.response.status = 404;
+          ctx.response.body = {
+            success: false,
+            message: "Pedido no encontrado.",
+          };
+          return;
+        }
         
         await conexion.execute(
           "UPDATE pedidos SET estado = ? WHERE id_pedido = ?",
           [estadoValido, id_pedido]
         );
+        
+        if (pedidoActual.estado !== estadoValido && pedidoActual.id_consumidor) {
+          const { NotificationService } = await import("../Services/NotificationService.ts");
+          const notificationService = new NotificationService();
+          
+          const mensajesEstado: Record<string, string> = {
+            'confirmado': 'Tu pedido #' + id_pedido + ' ha sido confirmado. El productor comenzará a prepararlo pronto.',
+            'en_preparacion': 'Tu pedido #' + id_pedido + ' está siendo preparado. ¡Pronto estará listo!',
+            'en_camino': '¡Excelente noticia! Tu pedido #' + id_pedido + ' está en camino hacia ti.',
+            'entregado': '¡Tu pedido #' + id_pedido + ' ha sido entregado! Esperamos que disfrutes tus productos.',
+            'cancelado': 'Tu pedido #' + id_pedido + ' ha sido cancelado. Si tienes dudas, contacta al soporte.'
+          };
+          
+          const mensaje = mensajesEstado[estadoValido] || 'El estado de tu pedido #' + id_pedido + ' ha cambiado a ' + estadoValido + '.';
+          
+          await notificationService.createNotification({
+            id_usuario: pedidoActual.id_consumidor,
+            titulo: "📦 Actualización de Pedido",
+            mensaje: mensaje,
+            tipo: estadoValido === 'cancelado' ? 'warning' : 'info',
+            datos_extra: {
+              pedido_id: id_pedido,
+              estado_anterior: pedidoActual.estado,
+              estado_nuevo: estadoValido,
+              action: 'view_order'
+            }
+          });
+        }
         
         ctx.response.status = 200;
         ctx.response.body = {
@@ -461,7 +502,20 @@ export const putPedido = async (ctx: RouterContext<"/pedidos/:id">) => {
         valores.push(validatedParcial.metodo_pago);
       }
       
+      let estadoAnterior: string | null = null;
+      let idConsumidor: number | null = null;
+      
       if (validatedParcial.estado !== undefined) {
+        const [pedidoInfo] = await conexion.query(
+          "SELECT estado, id_consumidor FROM pedidos WHERE id_pedido = ?",
+          [id_pedido]
+        ) as Array<{ estado: string; id_consumidor: number }>;
+        
+        if (pedidoInfo) {
+          estadoAnterior = pedidoInfo.estado;
+          idConsumidor = pedidoInfo.id_consumidor;
+        }
+        
         camposActualizar.push('estado = ?');
         valores.push(validatedParcial.estado);
       }
@@ -475,6 +529,34 @@ export const putPedido = async (ctx: RouterContext<"/pedidos/:id">) => {
         valores.push(id_pedido);
         const query = `UPDATE pedidos SET ${camposActualizar.join(', ')} WHERE id_pedido = ?`;
         await conexion.execute(query, valores);
+        
+        if (estadoAnterior !== null && idConsumidor && validatedParcial.estado && estadoAnterior !== validatedParcial.estado) {
+          const { NotificationService } = await import("../Services/NotificationService.ts");
+          const notificationService = new NotificationService();
+          
+          const mensajesEstado: Record<string, string> = {
+            'confirmado': 'Tu pedido #' + id_pedido + ' ha sido confirmado. El productor comenzará a prepararlo pronto.',
+            'en_preparacion': 'Tu pedido #' + id_pedido + ' está siendo preparado. ¡Pronto estará listo!',
+            'en_camino': '¡Excelente noticia! Tu pedido #' + id_pedido + ' está en camino hacia ti.',
+            'entregado': '¡Tu pedido #' + id_pedido + ' ha sido entregado! Esperamos que disfrutes tus productos.',
+            'cancelado': 'Tu pedido #' + id_pedido + ' ha sido cancelado. Si tienes dudas, contacta al soporte.'
+          };
+          
+          const mensaje = mensajesEstado[validatedParcial.estado] || 'El estado de tu pedido #' + id_pedido + ' ha cambiado a ' + validatedParcial.estado + '.';
+          
+          await notificationService.createNotification({
+            id_usuario: idConsumidor,
+            titulo: "📦 Actualización de Pedido",
+            mensaje: mensaje,
+            tipo: validatedParcial.estado === 'cancelado' ? 'warning' : 'info',
+            datos_extra: {
+              pedido_id: id_pedido,
+              estado_anterior: estadoAnterior,
+              estado_nuevo: validatedParcial.estado,
+              action: 'view_order'
+            }
+          });
+        }
         
         ctx.response.status = 200;
         ctx.response.body = {

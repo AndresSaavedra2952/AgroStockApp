@@ -6,11 +6,13 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import pedidosService from '../../src/service/PedidosService';
 import { useAuth } from '../../src/context/AuthContext';
 
-export default function PedidosScreen({ navigation }) {
+export default function PedidosScreen({ navigation, route }) {
   const { user } = useAuth();
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -18,6 +20,18 @@ export default function PedidosScreen({ navigation }) {
   useEffect(() => {
     cargarPedidos();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (route?.params?.refresh) {
+        cargarPedidos();
+        navigation.setParams({ refresh: false });
+      } else {
+        cargarPedidos();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, route]);
 
   const cargarPedidos = async () => {
     setLoading(true);
@@ -50,9 +64,7 @@ export default function PedidosScreen({ navigation }) {
     <TouchableOpacity
       style={styles.pedidoCard}
       onPress={() => {
-        // TODO: Implementar pantalla de detalle de pedido
-        // Por ahora, no hacer nada o mostrar información básica
-        console.log('Ver detalle del pedido:', item.id_pedido);
+        navigation.navigate('PedidoDetalle', { pedidoId: item.id_pedido });
       }}
     >
       <View style={styles.pedidoHeader}>
@@ -61,25 +73,28 @@ export default function PedidosScreen({ navigation }) {
           <Text style={styles.estadoText}>{item.estado}</Text>
         </View>
       </View>
-      <Text style={styles.pedidoFecha}>Fecha: {item.fecha}</Text>
+      <Text style={styles.pedidoFecha}>
+        Fecha: {item.fecha_pedido ? new Date(item.fecha_pedido).toLocaleDateString('es-ES') : 'No especificada'}
+      </Text>
       <Text style={styles.pedidoTotal}>Total: ${item.total?.toLocaleString()}</Text>
     </TouchableOpacity>
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
         data={pedidos}
         renderItem={renderPedido}
         keyExtractor={(item) => item.id_pedido.toString()}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={cargarPedidos} />}
+        contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No tienes pedidos realizados</Text>
           </View>
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -87,6 +102,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  listContent: {
+    paddingTop: 15,
   },
   pedidoCard: {
     backgroundColor: '#fff',

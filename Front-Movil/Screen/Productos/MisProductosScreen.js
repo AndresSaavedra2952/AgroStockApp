@@ -11,17 +11,20 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/context/AuthContext';
 import productosService from '../../src/service/ProductosService';
 import { Ionicons } from '@expo/vector-icons';
 import CrearProductoModal from '../../src/components/CrearProductoModal';
 import EditarProductoModal from '../../src/components/EditarProductoModal';
+import useNotifications from '../../src/hooks/useNotifications';
 
 export default function MisProductosScreen({ navigation }) {
   const [modalCrearVisible, setModalCrearVisible] = useState(false);
   const [modalEditarVisible, setModalEditarVisible] = useState(false);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   const { user } = useAuth();
+  const { totalNoLeidas, refrescar: refrescarNotificaciones } = useNotifications();
   const [productos, setProductos] = useState([]);
   const [productosFiltrados, setProductosFiltrados] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -35,6 +38,14 @@ export default function MisProductosScreen({ navigation }) {
   useEffect(() => {
     filtrarProductos();
   }, [productos, busqueda, filtroEstado]);
+
+  // Recargar notificaciones cuando la pantalla recibe foco
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      refrescarNotificaciones();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   const cargarProductos = async () => {
     setLoading(true);
@@ -230,26 +241,45 @@ export default function MisProductosScreen({ navigation }) {
   const productosAgotados = productos.filter(p => p.stock === 0 || p.stock === null).length;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header con estadísticas */}
       <View style={styles.header}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{productos.length}</Text>
-            <Text style={styles.statLabel}>Total</Text>
+        <View style={styles.headerTop}>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{productos.length}</Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={[styles.statValue, { color: '#2e7d32' }]}>{productosActivos}</Text>
+              <Text style={styles.statLabel}>Disponibles</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={[styles.statValue, { color: '#fbc02d' }]}>{productosStockBajo}</Text>
+              <Text style={styles.statLabel}>Stock Bajo</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={[styles.statValue, { color: '#f57c00' }]}>{productosAgotados}</Text>
+              <Text style={styles.statLabel}>Agotados</Text>
+            </View>
           </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: '#2e7d32' }]}>{productosActivos}</Text>
-            <Text style={styles.statLabel}>Disponibles</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: '#fbc02d' }]}>{productosStockBajo}</Text>
-            <Text style={styles.statLabel}>Stock Bajo</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: '#f57c00' }]}>{productosAgotados}</Text>
-            <Text style={styles.statLabel}>Agotados</Text>
-          </View>
+          {/* Botón de notificaciones */}
+          <TouchableOpacity
+            style={styles.notificacionesButton}
+            onPress={() => {
+              navigation.navigate('Notificaciones');
+              refrescarNotificaciones();
+            }}
+          >
+            <Ionicons name="notifications-outline" size={24} color="#333" />
+            {totalNoLeidas > 0 && (
+              <View style={styles.notificacionesBadge}>
+                <Text style={styles.notificacionesBadgeText}>
+                  {totalNoLeidas > 99 ? '99+' : totalNoLeidas}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -339,7 +369,7 @@ export default function MisProductosScreen({ navigation }) {
         productoId={productoSeleccionado}
         onSuccess={cargarProductos}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -351,13 +381,49 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#fff',
     paddingVertical: 15,
+    paddingTop: 20,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
   statsRow: {
+    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-around',
+  },
+  notificacionesButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    marginLeft: 10,
+  },
+  notificacionesBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#d32f2f',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  notificacionesBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
   statCard: {
     alignItems: 'center',

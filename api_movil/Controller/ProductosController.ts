@@ -548,11 +548,9 @@ export const postProducto = async (ctx: Context) => {
       prefijoImagenData: body.imagenData ? body.imagenData.substring(0, 50) : null
     });
     
-    // Extraer imagenData ANTES de validar con Zod
     const imagenDataRaw = body.imagenData;
     const imagen_principal = body.imagen_principal;
     
-    // Remover imagenData del body para que Zod no lo valide
     const bodySinImagenData = { ...body };
     delete bodySinImagenData.imagenData;
     
@@ -620,7 +618,6 @@ export const postProducto = async (ctx: Context) => {
     };
 
     const objProductos = new ProductosModel(productoCompleto);
-    // Si hay imagen_principal (URL), actualizarla después de crear el producto
     const result = await objProductos.AgregarProducto(imagenData);
     
     // Si se creó exitosamente y hay imagen_principal (URL), actualizarla
@@ -710,7 +707,10 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
       body = await ctx.request.body.json();
       console.log(`📦 [PUT /productos/${id_producto}] Datos recibidos:`, { 
         campos: Object.keys(body),
-        tieneImagen: !!body.imagenData 
+        tieneImagen: !!body.imagenData,
+        tieneImagenesAdicionales: !!body.imagenes_adicionales,
+        tipoImagenesAdicionales: typeof body.imagenes_adicionales,
+        cantidadImagenesAdicionales: Array.isArray(body.imagenes_adicionales) ? body.imagenes_adicionales.length : 'N/A'
       });
     } catch (jsonError) {
       console.error(`❌ [PUT /productos/${id_producto}] Error parseando JSON:`, jsonError);
@@ -723,17 +723,46 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
       return;
     }
     
-    // Extraer imagenData ANTES de validar con Zod
+    // Extraer imagenData e imagenes_adicionales ANTES de validar con Zod
     const imagenDataRaw = body.imagenData;
+    const imagenesAdicionalesRaw = body.imagenes_adicionales;
     
-    // Remover imagenData del body para que Zod no lo valide
+    // Remover imagenData e imagenes_adicionales del body para que Zod no los valide
     const bodySinImagenData = { ...body };
     delete bodySinImagenData.imagenData;
+    delete bodySinImagenData.imagenes_adicionales;
     
     // Normalizar imagenData: convertir strings vacíos a undefined
     const imagenData = (imagenDataRaw && typeof imagenDataRaw === 'string' && imagenDataRaw !== '' && imagenDataRaw !== null) 
       ? imagenDataRaw 
       : undefined;
+    
+    // Normalizar imagenes_adicionales: debe ser un array
+    let imagenesAdicionales: (string | string[])[] = [];
+    if (imagenesAdicionalesRaw) {
+      if (Array.isArray(imagenesAdicionalesRaw)) {
+        imagenesAdicionales = imagenesAdicionalesRaw;
+      } else if (typeof imagenesAdicionalesRaw === 'string') {
+        try {
+          imagenesAdicionales = JSON.parse(imagenesAdicionalesRaw);
+        } catch {
+          imagenesAdicionales = [];
+        }
+      }
+    }
+    
+    console.log(`📸 [PUT /productos/${id_producto}] imagenes_adicionales recibidas:`, {
+      tipo: typeof imagenesAdicionalesRaw,
+      esArray: Array.isArray(imagenesAdicionalesRaw),
+      cantidad: imagenesAdicionales.length,
+      desglose: imagenesAdicionales.map((img, idx) => ({
+        indice: idx,
+        tipo: typeof img,
+        esBase64: typeof img === 'string' && img.startsWith('data:image/'),
+        esRuta: typeof img === 'string' && !img.startsWith('data:image/'),
+        preview: typeof img === 'string' ? (img.startsWith('data:image/') ? 'base64...' : img.substring(0, 50)) : String(img)
+      }))
+    });
     
     // Log para depuración
     if (imagenData) {
@@ -815,7 +844,7 @@ export const putProducto = async (ctx: RouterContext<"/productos/:id">) => {
     };
 
     const objProductos = new ProductosModel(productoCompleto);
-    const result = await objProductos.EditarProducto(imagenData);
+    const result = await objProductos.EditarProducto(imagenData, imagenesAdicionales);
 
     if (result.success) {
       console.log(`✅ [PUT /productos/${id_producto}] Producto actualizado exitosamente:`, result.message);

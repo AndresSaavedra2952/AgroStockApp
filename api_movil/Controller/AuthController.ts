@@ -11,7 +11,6 @@ import { emailService } from "../Services/EmailService.ts";
 import { conexion } from "../Models/Conexion.ts";
 
 
-// Configuración JWT mejorada
 let secret: string;
 let key: CryptoKey;
 
@@ -28,13 +27,10 @@ async function initializeJWT() {
   );
 }
 
-// Inicializar JWT
 await initializeJWT();
 
 export class AuthController {
-  /**
-   * Login mejorado con validaciones de seguridad
-   */
+   //Login mejorado con validaciones de seguridad
   static async login(ctx: Context) {
     try {
       const body = await ctx.request.body.json();

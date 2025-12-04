@@ -1,88 +1,123 @@
-import { useState, useEffect } from 'react';
-import * as Notifications from 'expo-notifications';
-import notificationService from '../service/NotificationService';
+import { useState, useEffect, useRef } from 'react';
+import notificacionesService from '../service/NotificacionesService';
+import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const useNotifications = (navigation) => {
-  const [notificaciones, setNotificaciones] = useState([]);
-  const [permisos, setPermisos] = useState(false);
-  const [badgeCount, setBadgeCount] = useState(0);
+export default function useNotifications() {
+  const { isAuthenticated, token, loading: authLoading } = useAuth();
+  const [totalNoLeidas, setTotalNoLeidas] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const lastCallRef = useRef(0);
+  const isCallingRef = useRef(false);
+
+  const cargarContador = async (force = false) => {
+    // Esperar a que la autenticación termine de cargar
+    if (authLoading) {
+      return;
+    }
+
+    // Solo cargar si el usuario está autenticado y tiene token
+    if (!isAuthenticated() || !token) {
+      setTotalNoLeidas(0);
+      return;
+    }
+
+    // Verificar que el token esté disponible en AsyncStorage
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken) {
+        setTotalNoLeidas(0);
+        return;
+      }
+    } catch (error) {
+      // Si hay error al leer AsyncStorage, no hacer la llamada
+      setTotalNoLeidas(0);
+      return;
+    }
+
+    const now = Date.now();
+    
+    // Debounce: evitar llamadas muy frecuentes (máximo cada 3 segundos)
+    if (!force && now - lastCallRef.current < 3000) {
+      return;
+    }
+
+    if (isCallingRef.current) {
+      return;
+    }
+
+    lastCallRef.current = now;
+    isCallingRef.current = true;
+    setLoading(true);
+
+    try {
+      const response = await notificacionesService.contarNoLeidas();
+      if (response.success) {
+        setTotalNoLeidas(response.totalNoLeidas || 0);
+      } else {
+        // Si hay error de autenticación, no mostrar error en consola
+        if (response.error !== 'UNAUTHORIZED' && response.error !== 'No autenticado') {
+          console.error('Error al cargar contador de notificaciones:', response);
+        }
+        setTotalNoLeidas(0);
+      }
+    } catch (error) {
+      // Solo mostrar error si no es de autenticación
+      if (error?.error !== 'UNAUTHORIZED' && error?.error !== 'No autenticado' && 
+          error?.message !== 'Token no proporcionado') {
+        console.error('Error al cargar contador de notificaciones:', error);
+      }
+      setTotalNoLeidas(0);
+    } finally {
+      setLoading(false);
+      isCallingRef.current = false;
+    }
+  };
+
+  const refrescar = () => {
+    cargarContador(true);
+  };
 
   useEffect(() => {
-    // Solicitar permisos
-    solicitarPermisos();
-
-    // Configurar listeners
-    if (navigation) {
-      notificationService.configurarListeners(navigation);
+    // Esperar a que la autenticación termine de cargar
+    if (authLoading) {
+      return;
     }
 
-    // Listener para notificaciones recibidas
-    const receivedSubscription = Notifications.addNotificationReceivedListener(
-      (notification) => {
-        setNotificaciones(prev => [notification, ...prev]);
-        setBadgeCount(prev => prev + 1);
-      }
-    );
+    // Solo cargar si el usuario está autenticado
+    if (!isAuthenticated() || !token) {
+      setTotalNoLeidas(0);
+      return;
+    }
 
-    // Listener para respuestas a notificaciones
-    const responseSubscription = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = response.notification.request.content.data;
-        handleNotificationTap(data);
-      }
-    );
+    let intervalId = null;
+
+    // Pequeño delay para asegurar que el token esté disponible
+    const timeoutId = setTimeout(() => {
+      // Cargar contador inicial
+      cargarContador();
+
+      // Actualizar cada 30 segundos
+      intervalId = setInterval(() => {
+        if (isAuthenticated() && token) {
+          cargarContador();
+        } else {
+          setTotalNoLeidas(0);
+        }
+      }, 30000);
+    }, 500);
 
     return () => {
-      receivedSubscription.remove();
-      responseSubscription.remove();
+      clearTimeout(timeoutId);
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
     };
-  }, [navigation]);
-
-  const solicitarPermisos = async () => {
-    const tienePermiso = await notificationService.solicitarPermisos();
-    setPermisos(tienePermiso);
-    
-    if (tienePermiso) {
-      await notificationService.registrarToken();
-    }
-  };
-
-  const handleNotificationTap = (data) => {
-    if (!navigation || !data) return;
-
-    // Navegar según el tipo de notificación
-    if (data.type === 'pedido') {
-      navigation.navigate('Pedidos', { pedidoId: data.id });
-    } else if (data.type === 'mensaje') {
-      navigation.navigate('Mensajes', { mensajeId: data.id });
-    } else if (data.type === 'producto') {
-      navigation.navigate('Productos', { productoId: data.id });
-    }
-  };
-
-  const enviarNotificacionLocal = async (titulo, mensaje, data = {}) => {
-    await notificationService.enviarNotificacionLocal(titulo, mensaje, data);
-  };
-
-  const limpiarBadge = async () => {
-    await Notifications.setBadgeCountAsync(0);
-    setBadgeCount(0);
-  };
+  }, [isAuthenticated, token, authLoading]);
 
   return {
-    notificaciones,
-    permisos,
-    badgeCount,
-    solicitarPermisos,
-    enviarNotificacionLocal,
-    limpiarBadge,
+    totalNoLeidas,
+    loading,
+    refrescar,
   };
-};
-
-export default useNotifications;
-
-
-
-
-
-
+}

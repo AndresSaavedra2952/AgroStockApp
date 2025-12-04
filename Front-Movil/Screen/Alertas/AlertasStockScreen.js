@@ -6,6 +6,7 @@ import {
   FlatList,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../../src/service/ApiService';
 
 export default function AlertasStockScreen() {
@@ -42,19 +43,20 @@ export default function AlertasStockScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
         data={alertas}
         renderItem={renderAlerta}
         keyExtractor={(item, index) => item.id_alerta?.toString() || index.toString()}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={cargarAlertas} />}
+        contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No hay alertas de stock bajo</Text>
           </View>
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -62,6 +64,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  listContent: {
+    paddingTop: 15,
   },
   alertaCard: {
     backgroundColor: '#fff3cd',

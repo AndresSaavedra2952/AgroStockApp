@@ -31,10 +31,11 @@ export const cartService = {
 
   /**
    * Actualizar cantidad de un item en el carrito
+   * Nota: El backend usa id_producto, no id_item
    */
-  async actualizarItem(idItem, cantidad) {
+  async actualizarItem(idProducto, cantidad) {
     try {
-      const response = await api.put(`/cart/item/${idItem}`, {
+      const response = await api.put(`/cart/item/${idProducto}`, {
         cantidad,
       });
       return response.data;
@@ -45,10 +46,11 @@ export const cartService = {
 
   /**
    * Eliminar item del carrito
+   * Nota: El backend usa id_producto, no id_item
    */
-  async eliminarItem(idItem) {
+  async eliminarItem(idProducto) {
     try {
-      const response = await api.delete(`/cart/item/${idItem}`);
+      const response = await api.delete(`/cart/item/${idProducto}`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -79,16 +81,12 @@ export const cartService = {
     }
   },
 
-  /**
-   * Procesar checkout (crear pedido desde carrito)
-   */
   async checkout(direccionEntrega, notas, fechaEntregaEstimada, metodoPago) {
     try {
       const response = await api.post('/cart/checkout', {
         direccionEntrega,
         notas,
-        fechaEntregaEstimada,
-        metodoPago,
+        metodo_pago: metodoPago,
       });
       return response.data;
     } catch (error) {

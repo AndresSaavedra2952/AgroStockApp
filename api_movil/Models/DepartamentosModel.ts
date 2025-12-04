@@ -15,7 +15,8 @@ export class DepartamentosModel {
 
   public async ListarDepartamentos(): Promise<DepartamentoData[]> {
     try {
-      const result = await conexion.query("SELECT * FROM departamentos");
+      const result = await conexion.query("SELECT * FROM departamentos ORDER BY nombre");
+      console.log(`[DepartamentosModel] Se encontraron ${result.length} departamentos`);
       return result as DepartamentoData[];
     } catch (error) {
       console.error("Error al listar departamentos:", error);

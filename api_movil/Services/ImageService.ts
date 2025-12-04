@@ -38,9 +38,22 @@ export class ImageService {
         imageBytes = imageData;
         extension = 'jpg'; // Por defecto
       } else if (typeof imageData === 'string') {
+        console.log('🔍 [ImageService.saveImage] Procesando imagen:', {
+          tipo: typeof imageData,
+          longitud: imageData.length,
+          prefijo: imageData.substring(0, 50),
+          empiezaConDataImage: imageData.startsWith('data:image/'),
+          empiezaConHttp: imageData.startsWith('http://') || imageData.startsWith('https://'),
+          empiezaConFile: imageData.startsWith('file://'),
+          esBase64Puro: /^[A-Za-z0-9+/]+=*$/.test(imageData.substring(0, 100))
+        });
         const processed = await this.processImageData(imageData);
         imageBytes = processed.data;
         extension = processed.extension;
+        console.log('✅ [ImageService.saveImage] Imagen procesada:', {
+          extension,
+          tamañoBytes: imageBytes.length
+        });
       } else {
         throw new Error("Formato de imagen no válido");
       }
@@ -137,16 +150,43 @@ export class ImageService {
    * Procesar datos de imagen (base64, URL, etc.)
    */
   private async processImageData(imageData: string): Promise<{ data: Uint8Array; extension: string }> {
+    console.log('🔍 [ImageService.processImageData] Iniciando procesamiento:', {
+      longitud: imageData.length,
+      primeros50Chars: imageData.substring(0, 50),
+      ultimos50Chars: imageData.substring(Math.max(0, imageData.length - 50))
+    });
+
     // Base64 con data URL
     if (imageData.startsWith('data:image/')) {
+      console.log('📸 [ImageService.processImageData] Detectado formato data:image/');
       const match = imageData.match(/data:image\/([^;]+);base64,(.+)/);
       if (!match) {
+        console.error('❌ [ImageService.processImageData] No se pudo hacer match del regex');
         throw new Error("Formato base64 inválido");
       }
-      const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
+      const mimeType = match[1];
       const base64Data = match[2];
-      const data = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      return { data, extension };
+      console.log('📸 [ImageService.processImageData] Datos extraídos:', {
+        mimeType,
+        base64Length: base64Data.length,
+        base64Prefijo: base64Data.substring(0, 20)
+      });
+      
+      // Limpiar el base64 de espacios y saltos de línea
+      const cleanBase64 = base64Data.replace(/\s/g, '');
+      
+      try {
+        const data = Uint8Array.from(atob(cleanBase64), c => c.charCodeAt(0));
+        const extension = mimeType === 'jpeg' ? 'jpg' : mimeType;
+        console.log('✅ [ImageService.processImageData] Base64 decodificado:', {
+          extension,
+          tamañoBytes: data.length
+        });
+        return { data, extension };
+      } catch (decodeError) {
+        console.error('❌ [ImageService.processImageData] Error decodificando base64:', decodeError);
+        throw new Error("Error al decodificar base64: " + (decodeError instanceof Error ? decodeError.message : String(decodeError)));
+      }
     }
 
     // URL HTTP/HTTPS

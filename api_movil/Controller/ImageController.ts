@@ -280,7 +280,16 @@ export const uploadProductorProfileImage = async (ctx: Context) => {
         const body = await ctx.request.body.json();
         const { imageData } = body;
 
+        console.log('📥 [uploadProductorProfileImage] Recibido JSON:', {
+          tieneImageData: !!imageData,
+          tipoImageData: typeof imageData,
+          longitudImageData: imageData ? imageData.length : 0,
+          prefijoImageData: imageData ? imageData.substring(0, 50) : 'N/A',
+          clavesBody: Object.keys(body)
+        });
+
         if (!imageData) {
+          console.error('❌ [uploadProductorProfileImage] No se proporcionó imageData');
           ctx.response.status = 400;
           ctx.response.body = {
             success: false,
@@ -290,10 +299,29 @@ export const uploadProductorProfileImage = async (ctx: Context) => {
           return;
         }
 
+        // Validar que imageData sea un string
+        if (typeof imageData !== 'string') {
+          console.error('❌ [uploadProductorProfileImage] imageData no es un string:', typeof imageData);
+          ctx.response.status = 400;
+          ctx.response.body = {
+            success: false,
+            error: "INVALID_IMAGE_DATA",
+            message: "El formato de imagen no es válido"
+          };
+          return;
+        }
+
+        console.log('📤 [uploadProductorProfileImage] Enviando a imageService.saveImage');
         result = await imageService.saveImage(
           imageData,
           `usuarios/${userId}`
         );
+        console.log('📥 [uploadProductorProfileImage] Resultado de imageService:', {
+          success: result.success,
+          tienePath: !!result.path,
+          error: result.error,
+          message: result.message
+        });
       } else {
         ctx.response.status = 400;
         ctx.response.body = {
@@ -506,9 +534,19 @@ export const uploadProductAdditionalImage = async (ctx: RouterContext<"/images/p
       }
     } else if (contentType.includes("application/json")) {
       const body = await ctx.request.body.json();
+      console.log('📥 [uploadProductAdditionalImage] Body recibido:', {
+        claves: Object.keys(body),
+        tieneImageData: 'imageData' in body,
+        tipoImageData: typeof body.imageData,
+        longitudImageData: body.imageData ? body.imageData.length : 0,
+        prefijoImageData: body.imageData ? body.imageData.substring(0, 50) : 'N/A',
+        empiezaConDataImage: body.imageData ? body.imageData.startsWith('data:image/') : false
+      });
+      
       const { imageData } = body;
 
       if (!imageData) {
+        console.error('❌ [uploadProductAdditionalImage] No se proporcionó imageData');
         ctx.response.status = 400;
         ctx.response.body = {
           success: false,
@@ -518,10 +556,28 @@ export const uploadProductAdditionalImage = async (ctx: RouterContext<"/images/p
         return;
       }
 
+      if (typeof imageData !== 'string') {
+        console.error('❌ [uploadProductAdditionalImage] imageData no es un string:', typeof imageData);
+        ctx.response.status = 400;
+        ctx.response.body = {
+          success: false,
+          error: "INVALID_IMAGE_DATA",
+          message: "El formato de imagen no es válido"
+        };
+        return;
+      }
+
+      console.log('📤 [uploadProductAdditionalImage] Enviando a imageService.saveImage');
       result = await imageService.saveImage(
         imageData,
         `productos/${idProducto}`
       );
+      console.log('📥 [uploadProductAdditionalImage] Resultado de imageService:', {
+        success: result.success,
+        tienePath: !!result.path,
+        error: result.error,
+        message: result.message
+      });
     } else {
       ctx.response.status = 400;
       ctx.response.body = {

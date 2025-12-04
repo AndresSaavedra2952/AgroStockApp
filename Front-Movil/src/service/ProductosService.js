@@ -116,6 +116,22 @@ export const productosService = {
       throw error.response?.data || error.message;
     }
   },
+
+  /**
+   * Subir imagen adicional a un producto
+   */
+  async subirImagenAdicional(idProducto, imagenData) {
+    try {
+      const response = await api.post(`/images/producto/${idProducto}/adicional`, imagenData, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
 };
 
 export default productosService;

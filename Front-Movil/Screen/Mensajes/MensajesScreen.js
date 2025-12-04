@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import mensajesService from '../../src/service/MensajesService';
 import { useAuth } from '../../src/context/AuthContext';
@@ -200,7 +201,7 @@ export default function MensajesScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Mensajes</Text>
@@ -239,7 +240,7 @@ export default function MensajesScreen({ navigation }) {
           contentContainerStyle={styles.listContent}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -251,7 +252,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#2e7d32',
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },

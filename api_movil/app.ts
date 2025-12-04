@@ -147,9 +147,15 @@ const routers = [
 
 // Registrar todos los routers
 routers.forEach((router, index) => {
-  console.log(`📌 Registrando router ${index + 1}/${routers.length}:`, router.constructor?.name || 'Unknown');
-  app.use(router.routes());
-  app.use(router.allowedMethods());
+  const routerName = router.constructor?.name || 'Unknown';
+  console.log(`📌 Registrando router ${index + 1}/${routers.length}: ${routerName}`);
+  try {
+    app.use(router.routes());
+    app.use(router.allowedMethods());
+    console.log(`   ✅ Router ${routerName} registrado correctamente`);
+  } catch (error) {
+    console.error(`   ❌ Error al registrar router ${routerName}:`, error);
+  }
 });
 console.log("✅ Todos los routers registrados correctamente");
 

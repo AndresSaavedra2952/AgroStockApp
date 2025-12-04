@@ -11,7 +11,8 @@ import {
   ScrollView,
   Image,
   Dimensions,
-  InteractionManager,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
@@ -52,6 +53,8 @@ export default function RegisterScreen({ navigation }) {
   const [departamentos, setDepartamentos] = useState([]);
   const [ciudades, setCiudades] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [modalDepartamentoVisible, setModalDepartamentoVisible] = useState(false);
+  const [modalCiudadVisible, setModalCiudadVisible] = useState(false);
   const { register } = useAuth();
 
   useEffect(() => {
@@ -69,23 +72,67 @@ export default function RegisterScreen({ navigation }) {
 
   const cargarDepartamentos = async () => {
     try {
+      console.log('[RegisterScreen] Cargando departamentos...');
       const response = await ubicacionesService.getDepartamentos();
-      if (response.success) {
-        setDepartamentos(response.data || []);
+      console.log('[RegisterScreen] Respuesta de departamentos:', response);
+      
+      if (response && response.success) {
+        const datos = response.data || [];
+        console.log('[RegisterScreen] Departamentos cargados:', datos.length);
+        setDepartamentos(datos);
+      } else {
+        console.error('Error al cargar departamentos - respuesta sin success:', response);
+        setDepartamentos([]);
+        Alert.alert(
+          'Error',
+          'No se pudieron cargar los departamentos. Por favor, intenta nuevamente.',
+          [{ text: 'OK' }]
+        );
       }
     } catch (error) {
-      console.error('Error al cargar departamentos:', error);
+      console.error('Error al cargar departamentos (catch):', error);
+      console.error('Error completo:', JSON.stringify(error, null, 2));
+      setDepartamentos([]);
+      Alert.alert(
+        'Error',
+        `No se pudieron cargar los departamentos: ${error.message || error.error || 'Error desconocido'}`,
+        [{ text: 'OK' }]
+      );
     }
   };
 
   const cargarCiudades = async (idDepartamento) => {
     try {
+      if (!idDepartamento) {
+        setCiudades([]);
+        return;
+      }
+      console.log('[RegisterScreen] Cargando ciudades para departamento:', idDepartamento);
       const response = await ubicacionesService.getCiudades(idDepartamento);
-      if (response.success) {
-        setCiudades(response.data || []);
+      console.log('[RegisterScreen] Respuesta de ciudades:', response);
+      
+      if (response && response.success) {
+        const datos = response.data || [];
+        console.log('[RegisterScreen] Ciudades cargadas:', datos.length);
+        setCiudades(datos);
+      } else {
+        console.error('Error al cargar ciudades - respuesta sin success:', response);
+        setCiudades([]);
+        Alert.alert(
+          'Error',
+          'No se pudieron cargar las ciudades. Por favor, intenta nuevamente.',
+          [{ text: 'OK' }]
+        );
       }
     } catch (error) {
-      console.error('Error al cargar ciudades:', error);
+      console.error('Error al cargar ciudades (catch):', error);
+      console.error('Error completo:', JSON.stringify(error, null, 2));
+      setCiudades([]);
+      Alert.alert(
+        'Error',
+        `No se pudieron cargar las ciudades: ${error.message || error.error || 'Error desconocido'}`,
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -162,85 +209,39 @@ export default function RegisterScreen({ navigation }) {
       if (formData.rol === 'productor' && step === 2) {
         registerData.nombre_finca = formData.nombre_finca;
         registerData.tipo_productor = formData.tipo_productor || 'agricultor';
-        registerData.vereda = formData.vereda || null;
-        registerData.direccion_finca = formData.direccion_finca || null;
-        registerData.numero_registro_ica = formData.numero_registro_ica || null;
-        registerData.certificaciones = formData.certificaciones || null;
-        registerData.descripcion_actividad = formData.descripcion_actividad || null;
-        registerData.anos_experiencia = formData.anos_experiencia || null;
-        registerData.hectareas = formData.hectareas || null;
+        registerData.vereda = formData.vereda?.trim() || null;
+        registerData.direccion_finca = formData.direccion_finca?.trim() || null;
+        // Campos opcionales: sitio_web, certificaciones, numero_registro_ica
+        registerData.numero_registro_ica = formData.numero_registro_ica?.trim() || null;
+        registerData.certificaciones = formData.certificaciones?.trim() || null;
+        registerData.sitio_web = formData.sitio_web?.trim() || null;
+        registerData.descripcion_actividad = formData.descripcion_actividad?.trim() || null;
+        // Campos numéricos opcionales
+        registerData.anos_experiencia = formData.anos_experiencia ? parseInt(formData.anos_experiencia) || null : null;
+        registerData.hectareas = formData.hectareas ? parseFloat(formData.hectareas) || null : null;
         registerData.metodo_produccion = formData.metodo_produccion || 'tradicional';
-        registerData.sitio_web = formData.sitio_web || null;
       }
 
       const result = await register(registerData);
       
-      if (result.success && result.usuario) {
-        // Registro exitoso
+      if (result.success) {
+        // Registro exitoso - mostrar mensaje y navegar automáticamente
         const mensaje = formData.rol === 'productor' 
           ? 'Usuario y perfil de productor registrados correctamente.'
           : 'Usuario registrado correctamente.';
         
-        // Función para navegar a Login
-        const navigateToLogin = () => {
-          console.log('🔄 Intentando navegar a Login...');
-          console.log('Navigation object:', navigation);
-          console.log('Navigation methods:', Object.keys(navigation));
-          
-          try {
-            // Intentar primero con reset para limpiar el stack
-            if (navigation.reset) {
-              console.log('✅ Usando navigation.reset');
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } else if (navigation.replace) {
-              console.log('✅ Usando navigation.replace');
-              navigation.replace('Login');
-            } else {
-              console.log('✅ Usando navigation.navigate');
-              // Navegar a Login y luego limpiar el stack
-              navigation.navigate('Login');
-              // Intentar volver atrás y luego navegar para limpiar
-              if (navigation.canGoBack()) {
-                navigation.goBack();
-                setTimeout(() => {
-                  navigation.navigate('Login');
-                }, 100);
-              }
-            }
-            console.log('✅ Navegación ejecutada correctamente');
-          } catch (error) {
-            console.error('❌ Error en navegación:', error);
-            // Último recurso: intentar navigate simple
-            try {
-              navigation.navigate('Login');
-            } catch (navError) {
-              console.error('❌ Error crítico en navegación:', navError);
+        // Mostrar alert y navegar
+        Alert.alert('Éxito', mensaje, [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              // Usar setTimeout para asegurar que la navegación ocurra después de cerrar el alert
+              setTimeout(() => {
+                navigation.replace('Login');
+              }, 100);
             }
           }
-        };
-        
-        // Mostrar mensaje de éxito
-        Alert.alert('Éxito', mensaje, [
-          {
-            text: 'OK',
-            onPress: () => {
-              console.log('👆 Usuario presionó OK');
-              // Usar setTimeout para asegurar que el Alert se cierre primero
-              setTimeout(() => {
-                navigateToLogin();
-              }, 200);
-            },
-          },
         ]);
-        
-        // Redirigir automáticamente después de 2.5 segundos como respaldo
-        setTimeout(() => {
-          console.log('⏰ Timeout de redirección automática');
-          navigateToLogin();
-        }, 2500);
       } else {
         Alert.alert('Error', result.message || 'Error al registrar usuario');
       }
@@ -262,25 +263,6 @@ export default function RegisterScreen({ navigation }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Botón de retroceso */}
-          <TouchableOpacity
-            style={styles.backButtonHeader}
-            onPress={() => {
-              try {
-                if (navigation.canGoBack()) {
-                  navigation.goBack();
-                } else {
-                  navigation.navigate('HomePublic');
-                }
-              } catch (error) {
-                console.error('Error al navegar hacia atrás:', error);
-                navigation.navigate('HomePublic');
-              }
-            }}
-          >
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
-
           {/* Logo */}
           <View style={styles.logoContainer}>
             <Image
@@ -374,6 +356,9 @@ export default function RegisterScreen({ navigation }) {
                         secureTextEntry
                         placeholderTextColor="#999"
                       />
+                      <Text style={styles.helperText}>
+                        Mín. 8 caracteres, incluir mayúscula, minúscula, número y carácter especial
+                      </Text>
                     </View>
 
                     <View style={styles.inputContainer}>
@@ -390,22 +375,20 @@ export default function RegisterScreen({ navigation }) {
 
                     <View style={styles.inputContainer}>
                       <Text style={styles.inputLabel}>Departamento *</Text>
-                      <View style={styles.pickerWrapper}>
-                        <Picker
-                          selectedValue={formData.id_departamento}
-                          onValueChange={(value) => setFormData({ ...formData, id_departamento: value, id_ciudad: null })}
-                          style={styles.picker}
-                        >
-                          <Picker.Item label="Selecciona un departamento" value={null} />
-                          {departamentos.map((dept) => (
-                            <Picker.Item
-                              key={dept.id_departamento}
-                              label={dept.nombre}
-                              value={dept.id_departamento}
-                            />
-                          ))}
-                        </Picker>
-                      </View>
+                      <TouchableOpacity
+                        style={styles.selectorButton}
+                        onPress={() => setModalDepartamentoVisible(true)}
+                      >
+                        <Text style={[
+                          styles.selectorButtonText,
+                          !formData.id_departamento && styles.selectorButtonTextPlaceholder
+                        ]}>
+                          {formData.id_departamento
+                            ? departamentos.find(d => d.id_departamento === formData.id_departamento)?.nombre || 'Selecciona un departamento'
+                            : 'Selecciona un departamento'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={20} color="#666" />
+                      </TouchableOpacity>
                     </View>
                   </View>
 
@@ -448,26 +431,32 @@ export default function RegisterScreen({ navigation }) {
 
                     <View style={styles.inputContainer}>
                       <Text style={styles.inputLabel}>Ciudad *</Text>
-                      <View style={styles.pickerWrapper}>
-                        <Picker
-                          selectedValue={formData.id_ciudad}
-                          onValueChange={(value) => setFormData({ ...formData, id_ciudad: value })}
-                          style={styles.picker}
-                          enabled={!!formData.id_departamento}
-                        >
-                          <Picker.Item 
-                            label={formData.id_departamento ? "Selecciona una ciudad" : "Primero selecciona un departamento"} 
-                            value={null} 
-                          />
-                          {ciudades.map((ciudad) => (
-                            <Picker.Item
-                              key={ciudad.id_ciudad}
-                              label={ciudad.nombre}
-                              value={ciudad.id_ciudad}
-                            />
-                          ))}
-                        </Picker>
-                      </View>
+                      <TouchableOpacity
+                        style={[
+                          styles.selectorButton,
+                          !formData.id_departamento && styles.selectorButtonDisabled
+                        ]}
+                        onPress={() => {
+                          if (formData.id_departamento) {
+                            setModalCiudadVisible(true);
+                          } else {
+                            Alert.alert('Aviso', 'Primero selecciona un departamento');
+                          }
+                        }}
+                        disabled={!formData.id_departamento}
+                      >
+                        <Text style={[
+                          styles.selectorButtonText,
+                          (!formData.id_ciudad || !formData.id_departamento) && styles.selectorButtonTextPlaceholder
+                        ]}>
+                          {!formData.id_departamento
+                            ? 'Primero selecciona un departamento'
+                            : formData.id_ciudad
+                            ? ciudades.find(c => c.id_ciudad === formData.id_ciudad)?.nombre || 'Selecciona una ciudad'
+                            : 'Selecciona una ciudad'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={20} color={formData.id_departamento ? "#666" : "#ccc"} />
+                      </TouchableOpacity>
                     </View>
                   </View>
                 </View>
@@ -699,23 +688,116 @@ export default function RegisterScreen({ navigation }) {
           {/* Link Login */}
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>¿Ya tienes cuenta? </Text>
-            <TouchableOpacity onPress={() => {
-              try {
-                navigation.navigate('Login');
-              } catch (error) {
-                console.error('Error al navegar a Login:', error);
-                // Si falla, intentar resetear la navegación
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Login' }],
-                });
-              }
-            }}>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
               <Text style={styles.loginLink}>Inicia sesión aquí</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Modal de Departamentos */}
+      <Modal
+        visible={modalDepartamentoVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setModalDepartamentoVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Selecciona un Departamento</Text>
+              <TouchableOpacity onPress={() => setModalDepartamentoVisible(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={departamentos}
+              keyExtractor={(item) => item.id_departamento.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    formData.id_departamento === item.id_departamento && styles.modalItemSelected
+                  ]}
+                  onPress={() => {
+                    setFormData({ ...formData, id_departamento: item.id_departamento, id_ciudad: null });
+                    setModalDepartamentoVisible(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.modalItemText,
+                    formData.id_departamento === item.id_departamento && styles.modalItemTextSelected
+                  ]}>
+                    {item.nombre}
+                  </Text>
+                  {formData.id_departamento === item.id_departamento && (
+                    <Ionicons name="checkmark" size={20} color="#2e7d32" />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.modalEmpty}>
+                  <Text style={styles.modalEmptyText}>No hay departamentos disponibles</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de Ciudades */}
+      <Modal
+        visible={modalCiudadVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setModalCiudadVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Selecciona una Ciudad</Text>
+              <TouchableOpacity onPress={() => setModalCiudadVisible(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={ciudades}
+              keyExtractor={(item) => item.id_ciudad.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    formData.id_ciudad === item.id_ciudad && styles.modalItemSelected
+                  ]}
+                  onPress={() => {
+                    setFormData({ ...formData, id_ciudad: item.id_ciudad });
+                    setModalCiudadVisible(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.modalItemText,
+                    formData.id_ciudad === item.id_ciudad && styles.modalItemTextSelected
+                  ]}>
+                    {item.nombre}
+                  </Text>
+                  {formData.id_ciudad === item.id_ciudad && (
+                    <Ionicons name="checkmark" size={20} color="#2e7d32" />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.modalEmpty}>
+                  <Text style={styles.modalEmptyText}>
+                    {formData.id_departamento
+                      ? 'No hay ciudades disponibles para este departamento'
+                      : 'Primero selecciona un departamento'}
+                  </Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -843,10 +925,88 @@ const styles = StyleSheet.create({
   picker: {
     height: 50,
   },
-  helperText: {
-    fontSize: 12,
+  selectorButton: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 50,
+  },
+  selectorButtonDisabled: {
+    backgroundColor: '#f5f5f5',
+    opacity: 0.6,
+  },
+  selectorButtonText: {
+    fontSize: 15,
+    color: '#333',
+    flex: 1,
+  },
+  selectorButtonTextPlaceholder: {
     color: '#999',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  modalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalItemSelected: {
+    backgroundColor: '#e8f5e9',
+  },
+  modalItemText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  modalItemTextSelected: {
+    color: '#2e7d32',
+    fontWeight: '600',
+  },
+  modalEmpty: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  modalEmptyText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  helperText: {
+    fontSize: 11,
+    color: '#666',
     marginTop: 4,
+    fontStyle: 'italic',
   },
   inputRow: {
     flexDirection: 'row',
@@ -919,19 +1079,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#1976d2',
-  },
-  backButtonHeader: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    zIndex: 10,
-    padding: 8,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
   },
 });

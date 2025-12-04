@@ -6,6 +6,7 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/context/AuthContext';
 import estadisticasService from '../../src/service/EstadisticasService';
 import productosService from '../../src/service/ProductosService';
@@ -28,21 +29,46 @@ export default function EstadisticasScreen() {
     try {
       // Cargar datos en paralelo
       const [estadisticasRes, productosRes, pedidosRes] = await Promise.all([
-        estadisticasService.getEstadisticasVentas().catch(() => ({ success: false, data: null })),
-        productosService.getProductosPorUsuario(user?.id).catch(() => ({ success: false, data: [] })),
-        pedidosService.getPedidosRecibidos().catch(() => ({ success: false, data: [] })),
+        estadisticasService.getEstadisticasVentas().catch((err) => {
+          console.warn('Error al cargar estadísticas de ventas:', err);
+          return { success: false, data: null };
+        }),
+        productosService.getProductosPorUsuario(user?.id).catch((err) => {
+          console.error('Error al cargar productos:', err);
+          return { success: false, data: [] };
+        }),
+        pedidosService.getPedidosRecibidos().catch((err) => {
+          console.error('Error al cargar pedidos:', err);
+          return { success: false, data: [] };
+        }),
       ]);
 
-      if (estadisticasRes.success) {
+      if (estadisticasRes.success && estadisticasRes.data) {
         setEstadisticas(estadisticasRes.data);
+        console.log('[EstadisticasScreen] Estadísticas de ventas cargadas:', estadisticasRes.data);
       }
 
       if (productosRes.success) {
-        setProductos(productosRes.data || []);
+        const productosData = productosRes.data || [];
+        console.log(`[EstadisticasScreen] Productos cargados: ${productosData.length}`);
+        setProductos(productosData);
       }
 
       if (pedidosRes.success) {
-        setPedidos(pedidosRes.data || []);
+        const pedidosData = pedidosRes.data || [];
+        console.log(`[EstadisticasScreen] Pedidos cargados: ${pedidosData.length}`);
+        // Log de muestra para verificar estructura
+        if (pedidosData.length > 0) {
+          console.log('[EstadisticasScreen] Ejemplo de pedido:', {
+            id: pedidosData[0].id_pedido,
+            estado: pedidosData[0].estado,
+            total: pedidosData[0].total,
+            fecha_pedido: pedidosData[0].fecha_pedido,
+            fecha_creacion: pedidosData[0].fecha_creacion,
+            fecha: pedidosData[0].fecha
+          });
+        }
+        setPedidos(pedidosData);
       }
     } catch (error) {
       console.error('Error al cargar estadísticas:', error);
@@ -75,11 +101,17 @@ export default function EstadisticasScreen() {
   // Estadísticas financieras
   const totalVentas = pedidos
     .filter(p => p.estado === 'entregado' && p.total)
-    .reduce((sum, p) => sum + (Number(p.total) || 0), 0);
+    .reduce((sum, p) => {
+      const total = Number(p.total) || 0;
+      return sum + total;
+    }, 0);
   
   const ventasPendientes = pedidos
     .filter(p => ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'].includes(p.estado) && p.total)
-    .reduce((sum, p) => sum + (Number(p.total) || 0), 0);
+    .reduce((sum, p) => {
+      const total = Number(p.total) || 0;
+      return sum + total;
+    }, 0);
 
   const promedioPedido = pedidosEntregados > 0 
     ? totalVentas / pedidosEntregados 
@@ -94,13 +126,39 @@ export default function EstadisticasScreen() {
   const ahora = new Date();
   const hace30Dias = new Date(ahora.getTime() - 30 * 24 * 60 * 60 * 1000);
   const pedidosUltimos30Dias = pedidos.filter(p => {
-    const fechaPedido = new Date(p.fecha_pedido || p.fecha_creacion || 0);
+    // Intentar parsear la fecha de diferentes formatos posibles
+    let fechaPedido = null;
+    if (p.fecha_pedido) {
+      fechaPedido = new Date(p.fecha_pedido);
+    } else if (p.fecha_creacion) {
+      fechaPedido = new Date(p.fecha_creacion);
+    } else if (p.fecha) {
+      fechaPedido = new Date(p.fecha);
+    }
+    
+    if (!fechaPedido || isNaN(fechaPedido.getTime())) {
+      return false; // Si no hay fecha válida, no contar
+    }
+    
     return fechaPedido >= hace30Dias;
   }).length;
 
   const ventasUltimos30Dias = pedidos
     .filter(p => {
-      const fechaPedido = new Date(p.fecha_pedido || p.fecha_creacion || 0);
+      // Intentar parsear la fecha de diferentes formatos posibles
+      let fechaPedido = null;
+      if (p.fecha_pedido) {
+        fechaPedido = new Date(p.fecha_pedido);
+      } else if (p.fecha_creacion) {
+        fechaPedido = new Date(p.fecha_creacion);
+      } else if (p.fecha) {
+        fechaPedido = new Date(p.fecha);
+      }
+      
+      if (!fechaPedido || isNaN(fechaPedido.getTime())) {
+        return false;
+      }
+      
       return fechaPedido >= hace30Dias && p.estado === 'entregado' && p.total;
     })
     .reduce((sum, p) => sum + (Number(p.total) || 0), 0);
@@ -117,11 +175,12 @@ export default function EstadisticasScreen() {
   );
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={cargarDatos} />}
-    >
-      <View style={styles.header}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={cargarDatos} />}
+      >
+        <View style={styles.header}>
         <Text style={styles.title}>Estadísticas</Text>
         <Text style={styles.subtitle}>Resumen de tu actividad</Text>
       </View>
@@ -288,7 +347,8 @@ export default function EstadisticasScreen() {
           </View>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -297,10 +357,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  scrollView: {
+    flex: 1,
+  },
   header: {
     backgroundColor: '#2e7d32',
     padding: 20,
-    paddingTop: 40,
+    paddingTop: 20,
   },
   title: {
     fontSize: 28,

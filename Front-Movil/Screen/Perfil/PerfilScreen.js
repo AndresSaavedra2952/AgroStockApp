@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,19 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
+import EditarPerfilModal from '../../src/components/EditarPerfilModal';
+import CambiarContraseñaModal from '../../src/components/CambiarContraseñaModal';
+import { API_BASE_URL } from '../../src/service/conexion';
 
 export default function PerfilScreen({ navigation }) {
   const { user, logout, isProductor, isConsumidor } = useAuth();
+  const [modalEditarVisible, setModalEditarVisible] = useState(false);
+  const [modalContraseñaVisible, setModalContraseñaVisible] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -29,11 +37,43 @@ export default function PerfilScreen({ navigation }) {
     );
   };
 
+  const handlePerfilActualizado = () => {
+    // El modal ya actualiza el contexto, solo necesitamos cerrar
+    setModalEditarVisible(false);
+  };
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{user?.nombre?.charAt(0).toUpperCase()}</Text>
+          {user?.foto_perfil ? (() => {
+            const construirUrlImagen = (path) => {
+              if (!path) return null;
+              if (path.startsWith('http://') || path.startsWith('https://')) {
+                return path;
+              }
+              let normalizedPath = path.replace(/\\/g, '/').replace(/\/+/g, '/');
+              if (normalizedPath.startsWith('/uploads')) {
+                return `${API_BASE_URL}${normalizedPath}`;
+              }
+              if (normalizedPath.startsWith('uploads')) {
+                return `${API_BASE_URL}/${normalizedPath}`;
+              }
+              normalizedPath = normalizedPath.startsWith('/') 
+                ? normalizedPath.substring(1) 
+                : normalizedPath;
+              return `${API_BASE_URL}/uploads/${normalizedPath}`;
+            };
+            return (
+              <Image 
+                source={{ uri: construirUrlImagen(user.foto_perfil) }} 
+                style={styles.avatarImage}
+              />
+            );
+          })() : (
+            <Text style={styles.avatarText}>{user?.nombre?.charAt(0).toUpperCase()}</Text>
+          )}
         </View>
         <Text style={styles.nombre}>{user?.nombre}</Text>
         <Text style={styles.email}>{user?.email}</Text>
@@ -57,26 +97,56 @@ export default function PerfilScreen({ navigation }) {
       </View>
 
       <View style={styles.section}>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuItemText}>Editar Perfil</Text>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => setModalEditarVisible(true)}
+        >
+          <View style={styles.menuItemContent}>
+            <Ionicons name="create-outline" size={20} color="#2e7d32" />
+            <Text style={styles.menuItemText}>Editar Perfil</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuItemText}>Cambiar Contraseña</Text>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => setModalContraseñaVisible(true)}
+        >
+          <View style={styles.menuItemContent}>
+            <Ionicons name="lock-closed-outline" size={20} color="#2e7d32" />
+            <Text style={styles.menuItemText}>Cambiar Contraseña</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
         {isProductor() && (
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation.navigate('AlertasStock')}
           >
-            <Text style={styles.menuItemText}>Alertas de Stock</Text>
+            <View style={styles.menuItemContent}>
+              <Ionicons name="notifications-outline" size={20} color="#2e7d32" />
+              <Text style={styles.menuItemText}>Alertas de Stock</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
         )}
       </View>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
-      </TouchableOpacity>
-    </ScrollView>
+      {/* Modales */}
+      <EditarPerfilModal
+        visible={modalEditarVisible}
+        onClose={() => setModalEditarVisible(false)}
+        onSuccess={handlePerfilActualizado}
+      />
+      <CambiarContraseñaModal
+        visible={modalContraseñaVisible}
+        onClose={() => setModalContraseñaVisible(false)}
+      />
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -85,9 +155,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  scrollView: {
+    flex: 1,
+  },
   header: {
     backgroundColor: '#2e7d32',
     padding: 30,
+    paddingTop: 40,
     alignItems: 'center',
   },
   avatar: {
@@ -103,6 +177,11 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: 'bold',
     color: '#2e7d32',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
   },
   nombre: {
     fontSize: 24,
@@ -158,6 +237,14 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  menuItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   menuItemText: {
     fontSize: 16,
